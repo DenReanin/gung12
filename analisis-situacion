@@ -1,0 +1,196 @@
+# TFM: Plataforma automática de detección de vulnerabilidades en formularios web
+
+## Análisis de la propuesta
+
+### ¿Qué es exactamente lo que propones?
+
+Una herramienta CLI/web en Python que:
+1. **Crawlea** una aplicación web (como un spider)
+2. **Detecta formularios** HTML automáticamente
+3. **Lanza payloads** de ataque controlados (XSS, SQLi, LFI, lógicos)
+4. **Analiza respuestas** del servidor buscando indicios de vulnerabilidad
+5. **Genera un informe** estructurado (PDF/JSON/HTML)
+
+Esencialmente es un **DAST (Dynamic Application Security Testing)** tool, similar (a menor escala) a lo que hacen OWASP ZAP o Burp Suite Scanner.
+
+---
+
+## Desglose técnico por módulos
+
+### Módulo 1: Web Crawler
+- Librería: `requests` + `BeautifulSoup4` o `Scrapy`
+- Funciones: seguir enlaces, respetar robots.txt, manejar sesiones/cookies, detectar URLs ya visitadas
+- Complejidad: MEDIA
+
+### Módulo 2: Detector de formularios
+- Parsear HTML buscando `<form>`, `<input>`, `<textarea>`, `<select>`
+- Identificar método (GET/POST), action, campos ocultos, tokens CSRF
+- Complejidad: BAJA-MEDIA
+
+### Módulo 3: Motor de pruebas (el núcleo)
+- **XSS Reflejado**: inyectar `<script>alert(1)</script>` y variantes, buscar reflejo en respuesta
+- **SQLi básica**: payloads como `' OR 1=1--`, comillas, detectar errores SQL en respuesta
+- **LFI**: payloads como `../../etc/passwd`, buscar contenido de archivo en respuesta
+- **Errores lógicos**: valores negativos, campos vacíos obligatorios, tipos incorrectos
+- Complejidad: MEDIA-ALTA
+
+### Módulo 4: Analizador de respuestas
+- Comparar respuesta base vs respuesta con payload
+- Buscar patrones: errores SQL, reflexión del payload, contenido de ficheros
+- Posible uso de expresiones regulares o heurísticas simples
+- Complejidad: MEDIA
+
+### Módulo 5: Generador de informes
+- Formatos: JSON, HTML, PDF (con `reportlab` o `weasyprint`)
+- Contenido: formularios detectados, pruebas realizadas, vulnerabilidades encontradas, severidad
+- Complejidad: BAJA
+
+---
+
+## Valoración de complejidad global
+
+| Aspecto | Valoración |
+|---------|-----------|
+| Profundidad técnica | MEDIA-ALTA |
+| Originalidad | MEDIA (herramientas similares existen, pero el valor es la implementación propia) |
+| Volumen de trabajo | CONSIDERABLE |
+| Adecuación a Máster Ciberseguridad | MUY ALTA |
+
+---
+
+## Recursos necesarios
+
+### Software / Entorno
+- Python 3.10+
+- Entorno de pruebas: **DVWA** (Damn Vulnerable Web App), **WebGoat**, **bWAPP** en Docker
+- IDE: VS Code o PyCharm
+- Git para control de versiones
+
+### Librerías Python clave
+```
+requests, httpx          # peticiones HTTP
+beautifulsoup4, lxml     # parsing HTML
+scrapy                   # crawler avanzado (opcional)
+reportlab / weasyprint   # generación PDF
+click / argparse         # CLI interface
+pytest                   # tests unitarios
+```
+
+### Conocimientos previos necesarios
+- Python intermedio-avanzado
+- HTTP básico (métodos, headers, cookies, sesiones)
+- Conocimiento de XSS, SQLi, LFI (qué son, cómo funcionan)
+- HTML/formularios web
+- Expresiones regulares
+
+---
+
+## Propuesta de roadmap (sin fechas, por fases)
+
+### Fase 0: Investigación y diseño
+- Estudiar herramientas similares (ZAP, Nikto, sqlmap) para referencia
+- Definir arquitectura del sistema
+- Documentar payloads a usar y criterios de detección
+- Configurar entorno de pruebas con DVWA/WebGoat en Docker
+
+### Fase 1: Crawler + Detector de formularios
+- Implementar spider básico
+- Detectar y catalogar todos los formularios de un sitio
+
+### Fase 2: Motor de pruebas (XSS + SQLi)
+- Implementar los dos vectores más importantes
+- Validar contra DVWA
+
+### Fase 3: Motor de pruebas (LFI + Lógicos)
+- Completar el motor con los vectores adicionales
+
+### Fase 4: Analizador de respuestas
+- Lógica de detección heurística
+- Reducir falsos positivos
+
+### Fase 5: Generador de informes
+- Implementar salida JSON + HTML/PDF
+
+### Fase 6: Testing y validación
+- Pruebas contra aplicaciones vulnerables conocidas
+- Documentar resultados, falsos positivos, limitaciones
+
+### Fase 7: Memoria del TFM
+- Redactar la memoria completa
+- Sección: Estado del arte, diseño, implementación, pruebas, conclusiones
+
+---
+
+## Posibles mejoras/extensiones a la propuesta original
+
+1. **Interfaz web simple** (Flask/Streamlit) en lugar de solo CLI
+2. **Detección de CSRF** (ausencia de tokens anti-CSRF en formularios)
+3. **Soporte para autenticación** (login previo antes de crawlear áreas protegidas)
+4. **Integración con bases de datos de payloads** (SecLists)
+5. **Scoring de vulnerabilidades** por severidad (CVSS simplificado)
+6. **Modo headless con Selenium/Playwright** para XSS en respuestas JavaScript-rendered
+7. **Comparativa con OWASP ZAP** para validar resultados (muy valorado en TFMs académicos)
+
+---
+
+## Estimación de carga de trabajo
+
+### Por volumen:
+- Código Python: ~1500-3000 líneas (sin contar tests)
+- Memoria TFM: 60-100 páginas
+- Documentación técnica: 20-30 páginas adicionales
+
+### Distribución sugerida de horas semanales:
+- **Ritmo sostenible**: 8-12 horas/semana
+- **Ritmo intensivo** (últimas fases): 15-20 horas/semana
+- Total estimado: 200-300 horas (típico de un TFM de máster)
+
+---
+
+## Consideraciones éticas y legales (importante para el comité)
+
+- La herramienta **solo debe usarse en entornos propios o con permiso explícito**
+- El TFM debe incluir una sección de uso ético y responsable
+- Probar **exclusivamente** contra aplicaciones diseñadas para ser vulnerables (DVWA, WebGoat)
+- Documentar claramente que la herramienta es para **fines educativos y de auditoría autorizada**
+
+---
+
+## Perfil del estudiante y adaptación
+
+### Perfil:
+- Sin experiencia en Python
+- Fuerte en JavaScript/Angular (entornos web, frontend)
+- Experiencia en C++, Java, C
+- Usará IA como asistente de generación de código (revisado y modificado por él)
+- Plazo: Junio 2026 (~6 meses)
+
+### Adaptaciones recomendadas:
+
+**Ventajas del perfil JS/Angular:**
+- Entiende perfectamente cómo funcionan los formularios web, DOM, HTTP
+- XSS y el modelo cliente-servidor son familiares
+- Puede construir un frontend web rico usando sus skills existentes
+- Angular/React para la interfaz de informe sería una extensión natural
+
+**Estrategia de aprendizaje Python:**
+- Python tiene sintaxis más simple que Java/C++ - curva de aprendizaje baja
+- Con IA generando el código base y el estudiante revisando/modificando: viable en 2-3 semanas de familiarización
+- Enfocar en: requests, BeautifulSoup, manejo de archivos, POO básica
+
+**Arquitectura híbrida recomendada** (aprovecha sus skills):
+- Backend Python: crawler + motor de pruebas + análisis
+- Frontend opcional: Angular/React para dashboard de resultados (puede reutilizar sus skills)
+- Comunicación: API REST simple con Flask
+
+### Estimación realista con apoyo de IA
+
+| Fase | Horas sin IA | Horas con IA |
+|------|-------------|--------------|
+| Aprendizaje Python | 40h | 15-20h |
+| Implementación módulos | 120h | 50-60h |
+| Testing y validación | 40h | 25-30h |
+| Memoria TFM | 80h | 50-60h |
+| **Total** | **280h** | **140-170h** |
+
+A 8-10 horas/semana → **16-21 semanas** → muy factible para Junio 2026
