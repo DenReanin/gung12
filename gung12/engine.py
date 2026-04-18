@@ -8,9 +8,9 @@ import time
 import requests
 from typing import List, Optional
 
-from formvuln.models import FormData, VulnType, VulnResult, ScanResult
-from formvuln.payloads import get_payloads
-from formvuln.analyzer import ResponseAnalyzer
+from gung12.models import FormData, VulnType, VulnResult, ScanResult
+from gung12.payloads import get_payloads
+from gung12.analyzer import ResponseAnalyzer
 
 
 class ScanEngine:
@@ -25,7 +25,7 @@ class ScanEngine:
         self.verbose = verbose
         self.total_requests = 0
         self.session.headers.update({
-            "User-Agent": "FormVuln/1.0 (Security Scanner - Authorized Testing Only)"
+            "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
         })
 
     def scan(self, form: FormData, test_types: List[VulnType],

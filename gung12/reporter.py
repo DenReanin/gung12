@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from formvuln.models import ScanResult, Severity
+from gung12.models import ScanResult, Severity
 
 
 class ReportGenerator:
@@ -97,7 +97,7 @@ class ReportGenerator:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FormVuln - Informe de Seguridad</title>
+    <title>Gung12 - Informe de Seguridad</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -124,7 +124,7 @@ class ReportGenerator:
 <body>
 <div class="container">
     <div class="header">
-        <h1>FormVuln - Informe de Seguridad</h1>
+        <h1>Gung12 - Informe de Seguridad</h1>
         <div class="meta">
             <p><strong>URL:</strong> {result.url}</p>
             <p><strong>Fecha:</strong> {result.timestamp}</p>
@@ -164,7 +164,7 @@ class ReportGenerator:
     {ai_section}
 
     <div class="footer">
-        <p>Generado por FormVuln v1.0.0 — Solo para uso autorizado en entornos de prueba</p>
+        <p>Generado por Gung12 v1.0.0 — Solo para uso autorizado en entornos de prueba</p>
         <p>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
     </div>
 </div>

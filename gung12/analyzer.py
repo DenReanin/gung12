@@ -8,8 +8,8 @@ import re
 import time
 from typing import Optional
 
-from formvuln.models import VulnType, VulnResult, Severity, SEVERITY_MAP, FormData
-from formvuln.payloads import xss, sqli, ssti, ldap, cmdi, nosql, xxe, lfi, open_redirect
+from gung12.models import VulnType, VulnResult, Severity, SEVERITY_MAP, FormData
+from gung12.payloads import xss, sqli, ssti, ldap, cmdi, nosql, xxe, lfi, open_redirect
 
 
 class ResponseAnalyzer:

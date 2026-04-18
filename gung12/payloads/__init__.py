@@ -1,11 +1,11 @@
 """Registro de payloads por tipo de vulnerabilidad."""
 
-from formvuln.payloads import (
+from gung12.payloads import (
     xss, sqli, ssti, ldap, cmdi,
     nosql, xxe, csrf, lfi,
     open_redirect, idor, logic,
 )
-from formvuln.models import VulnType
+from gung12.models import VulnType
 
 # Mapeo de VulnType a módulo de payloads
 PAYLOAD_REGISTRY = {

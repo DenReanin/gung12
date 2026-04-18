@@ -13,7 +13,7 @@ import os
 import json
 from typing import Optional
 
-from formvuln.models import ScanResult
+from gung12.models import ScanResult
 
 
 class AIAnalyzer:
@@ -86,18 +86,17 @@ Responde en español, de forma concisa y técnica. Máximo 500 palabras."""
 
     def _call_gemini(self, prompt: str) -> str:
         """Llama a la API de Gemini."""
-        try:
-            import google.generativeai as genai
-        except ImportError:
-            raise ImportError(
-                "Instala google-generativeai: pip install google-generativeai"
-            )
+        import requests
 
-        genai.configure(api_key=self.api_key)
-        # Usar Flash Lite para aprovechar los 500 RPD gratis
-        model = genai.GenerativeModel("gemini-2.0-flash-lite")
-        response = model.generate_content(prompt)
-        return response.text
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={self.api_key}",
+            headers={"Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"]
 
     def _call_groq(self, prompt: str) -> str:
         """Llama a la API de Groq."""

@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from typing import List, Optional
 
-from formvuln.models import FormData, FormField
+from gung12.models import FormData, FormField
 
 
 # Nombres comunes de campos CSRF
@@ -29,7 +29,7 @@ class FormParser:
             self.session.cookies.update(cookies)
         self.timeout = timeout
         self.session.headers.update({
-            "User-Agent": "FormVuln/1.0 (Security Scanner - Authorized Testing Only)"
+            "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
         })
 
     def fetch_page(self, url: str) -> str:

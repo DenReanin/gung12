@@ -1,4 +1,4 @@
-"""Interfaz de línea de comandos (CLI) para FormVuln."""
+"""Interfaz de línea de comandos (CLI) para Gung12."""
 
 import os
 import sys
@@ -6,11 +6,11 @@ import json
 import click
 from typing import Optional
 
-from formvuln import __version__
-from formvuln.models import VulnType, Severity
-from formvuln.parser import FormParser
-from formvuln.engine import ScanEngine
-from formvuln.reporter import ReportGenerator
+from gung12 import __version__
+from gung12.models import VulnType, Severity
+from gung12.parser import FormParser
+from gung12.engine import ScanEngine
+from gung12.reporter import ReportGenerator
 
 
 # Todos los tipos de vulnerabilidad disponibles
@@ -74,15 +74,15 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
          cookie: Optional[str], test_only: bool, form_index: int,
          timeout: int, use_ai: bool, ai_provider: str,
          ai_key: Optional[str]):
-    """FormVuln - Detector de vulnerabilidades en formularios web.
+    """Gung12 - Detector de vulnerabilidades en formularios web.
 
     Analiza un formulario web específico mediante inyección de payloads
     para detectar 12 tipos de vulnerabilidades.
 
-    Ejemplo: python -m formvuln -u "http://localhost/vuln/xss/" -T xss,sqli -o report.html
+    Ejemplo: python -m gung12 -u "http://localhost/vuln/xss/" -T xss,sqli -o report.html
     """
     # Banner
-    click.echo(click.style("\n FormVuln v" + __version__ + " - Detector de Vulnerabilidades en Formularios Web", fg="cyan", bold=True))
+    click.echo(click.style("\n Gung12 v" + __version__ + " - Detector de Vulnerabilidades en Formularios Web", fg="cyan", bold=True))
     click.echo(click.style(" Solo para uso autorizado en entornos de prueba\n", fg="yellow"))
 
     # Parsear cookies
@@ -145,7 +145,7 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     if use_ai and scan_result.vulnerabilities:
         click.echo(f"\n[*] Ejecutando análisis con IA ({ai_provider})...")
         try:
-            from formvuln.ai_analyzer import AIAnalyzer
+            from gung12.ai_analyzer import AIAnalyzer
             ai = AIAnalyzer(provider=ai_provider, api_key=ai_key)
             ai_result = ai.analyze_results(scan_result)
             scan_result.ai_analysis = ai_result

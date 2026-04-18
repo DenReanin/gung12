@@ -1,4 +1,4 @@
-"""Modelos de datos para FormVuln."""
+"""Modelos de datos para Gung12."""
 
 from dataclasses import dataclass, field
 from typing import List, Optional
