@@ -18,14 +18,14 @@ class VulnType(Enum):
     XSS = "xss"
     SQLI = "sqli"
     SSTI = "ssti"
-    LDAP = "ldap"
+    XPATH = "xpath"
     CMDI = "cmdi"
     NOSQL = "nosql"
     XXE = "xxe"
     CSRF = "csrf"
-    LFI = "lfi"
+    FILE_UPLOAD = "file_upload"
     OPEN_REDIRECT = "redirect"
-    IDOR = "idor"
+    HTMLI = "htmli"
     LOGIC = "logic"
 
 
@@ -34,14 +34,14 @@ SEVERITY_MAP = {
     VulnType.XSS: Severity.HIGH,
     VulnType.SQLI: Severity.CRITICAL,
     VulnType.SSTI: Severity.CRITICAL,
-    VulnType.LDAP: Severity.HIGH,
+    VulnType.XPATH: Severity.HIGH,
     VulnType.CMDI: Severity.CRITICAL,
     VulnType.NOSQL: Severity.HIGH,
     VulnType.XXE: Severity.HIGH,
     VulnType.CSRF: Severity.MEDIUM,
-    VulnType.LFI: Severity.HIGH,
+    VulnType.FILE_UPLOAD: Severity.HIGH,
     VulnType.OPEN_REDIRECT: Severity.MEDIUM,
-    VulnType.IDOR: Severity.HIGH,
+    VulnType.HTMLI: Severity.MEDIUM,
     VulnType.LOGIC: Severity.LOW,
 }
 
@@ -65,10 +65,11 @@ class FormData:
     fields: List[FormField] = field(default_factory=list)
     has_csrf_token: bool = False
     csrf_field: Optional[FormField] = None
+    body_type: str = "form"  # "form" = x-www-form-urlencoded, "json" = application/json
 
     @property
     def injectable_fields(self) -> List[FormField]:
-        """Campos donde se pueden inyectar payloads (excluye submit, hidden CSRF, etc.)."""
+        """Campos donde se pueden inyectar payloads (excluye submit, hidden CSRF, file, etc.)."""
         skip_types = {"submit", "button", "image", "reset", "file"}
         csrf_names = {"csrf_token", "_token", "csrfmiddlewaretoken",
                       "authenticity_token", "__requestverificationtoken",
@@ -78,6 +79,11 @@ class FormData:
             if f.field_type not in skip_types
             and f.name.lower() not in csrf_names
         ]
+
+    @property
+    def file_fields(self) -> List[FormField]:
+        """Campos de tipo file para pruebas de carga de archivos sin restricciones."""
+        return [f for f in self.fields if f.field_type == "file"]
 
     @property
     def submit_data(self) -> dict:

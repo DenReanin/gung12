@@ -1,9 +1,9 @@
 """Registro de payloads por tipo de vulnerabilidad."""
 
 from gung12.payloads import (
-    xss, sqli, ssti, ldap, cmdi,
-    nosql, xxe, csrf, lfi,
-    open_redirect, idor, logic,
+    xss, sqli, ssti, xpath, cmdi,
+    nosql, xxe, csrf, file_upload,
+    open_redirect, htmli, logic,
 )
 from gung12.models import VulnType
 
@@ -12,14 +12,14 @@ PAYLOAD_REGISTRY = {
     VulnType.XSS: xss,
     VulnType.SQLI: sqli,
     VulnType.SSTI: ssti,
-    VulnType.LDAP: ldap,
+    VulnType.XPATH: xpath,
     VulnType.CMDI: cmdi,
     VulnType.NOSQL: nosql,
     VulnType.XXE: xxe,
     VulnType.CSRF: csrf,
-    VulnType.LFI: lfi,
+    VulnType.FILE_UPLOAD: file_upload,
     VulnType.OPEN_REDIRECT: open_redirect,
-    VulnType.IDOR: idor,
+    VulnType.HTMLI: htmli,
     VulnType.LOGIC: logic,
 }
 

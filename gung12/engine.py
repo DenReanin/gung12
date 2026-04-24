@@ -66,6 +66,39 @@ class ScanEngine:
                         callback(f"  [!] CSRF detectado: sin token anti-CSRF")
                 continue
 
+            # FILE_UPLOAD requiere campos file y envío multipart
+            if vuln_type == VulnType.FILE_UPLOAD:
+                file_fields = form.file_fields
+                if not file_fields:
+                    if callback:
+                        callback(f"  Sin campos <input type=file> para file_upload")
+                    continue
+                for field in file_fields:
+                    for payload_tuple in payloads:
+                        response_text, status_code, resp_time = self._send_file_payload(
+                            form, field.name, payload_tuple
+                        )
+                        self.total_requests += 1
+
+                        filename = payload_tuple[0] if isinstance(payload_tuple, tuple) else payload_tuple
+                        result = analyzer.analyze(
+                            vuln_type=vuln_type,
+                            payload=filename,
+                            response_text=response_text,
+                            status_code=status_code,
+                            response_time=resp_time,
+                            field_name=field.name,
+                            form=form,
+                        )
+
+                        if result:
+                            if not any(v.vuln_type == result.vuln_type and v.field_name == result.field_name
+                                       for v in all_vulns):
+                                all_vulns.append(result)
+                                if callback:
+                                    callback(f"  [!] FILE_UPLOAD detectado en '{field.name}': {filename[:60]}")
+                continue
+
             # Para el resto, obtener payloads e inyectar
             payloads = get_payloads(vuln_type, full_mode)
             injectable = form.injectable_fields
@@ -118,6 +151,8 @@ class ScanEngine:
             start = time.time()
             if form.method == "GET":
                 resp = self.session.get(form.action, params=data, timeout=self.timeout)
+            elif form.body_type == "json":
+                resp = self.session.post(form.action, json=data, timeout=self.timeout)
             else:
                 resp = self.session.post(form.action, data=data, timeout=self.timeout)
             elapsed = time.time() - start
@@ -138,11 +173,36 @@ class ScanEngine:
                     form.action, params=data, timeout=self.timeout,
                     allow_redirects=False,
                 )
+            elif form.body_type == "json":
+                resp = self.session.post(
+                    form.action, json=data, timeout=self.timeout,
+                    allow_redirects=False,
+                )
             else:
                 resp = self.session.post(
                     form.action, data=data, timeout=self.timeout,
                     allow_redirects=False,
                 )
+            elapsed = time.time() - start
+            return resp.text, resp.status_code, elapsed
+        except requests.Timeout:
+            return "", 0, self.timeout
+        except requests.RequestException:
+            return "", 0, 0.0
+
+    def _send_file_payload(self, form: FormData, field_name: str, file_tuple: tuple) -> tuple:
+        """Envía una petición multipart/form-data con un archivo malicioso."""
+        filename, content, mime_type = file_tuple
+        # Datos del formulario excluyendo el campo file
+        data = {k: v for k, v in form.submit_data.items() if k != field_name}
+        files = {field_name: (filename, content.encode("utf-8", errors="replace"), mime_type)}
+
+        try:
+            start = time.time()
+            resp = self.session.post(
+                form.action, data=data, files=files,
+                timeout=self.timeout, allow_redirects=False,
+            )
             elapsed = time.time() - start
             return resp.text, resp.status_code, elapsed
         except requests.Timeout:

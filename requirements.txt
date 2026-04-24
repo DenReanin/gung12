@@ -4,3 +4,6 @@ click>=8.1.0
 jinja2>=3.1.0
 colorama>=0.4.6
 google-generativeai>=0.8.0
+
+# Opcional — soporte SPA con --spa (requiere también: playwright install chromium)
+playwright>=1.40.0

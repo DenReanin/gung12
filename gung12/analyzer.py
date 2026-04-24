@@ -9,7 +9,7 @@ import time
 from typing import Optional
 
 from gung12.models import VulnType, VulnResult, Severity, SEVERITY_MAP, FormData
-from gung12.payloads import xss, sqli, ssti, ldap, cmdi, nosql, xxe, lfi, open_redirect
+from gung12.payloads import xss, sqli, ssti, xpath, cmdi, nosql, xxe, file_upload, open_redirect, htmli
 
 
 class ResponseAnalyzer:
@@ -30,13 +30,13 @@ class ResponseAnalyzer:
             VulnType.XSS: self._analyze_xss,
             VulnType.SQLI: self._analyze_sqli,
             VulnType.SSTI: self._analyze_ssti,
-            VulnType.LDAP: self._analyze_ldap,
+            VulnType.XPATH: self._analyze_xpath,
             VulnType.CMDI: self._analyze_cmdi,
             VulnType.NOSQL: self._analyze_nosql,
             VulnType.XXE: self._analyze_xxe,
-            VulnType.LFI: self._analyze_lfi,
+            VulnType.FILE_UPLOAD: self._analyze_file_upload,
             VulnType.OPEN_REDIRECT: self._analyze_redirect,
-            VulnType.IDOR: self._analyze_idor,
+            VulnType.HTMLI: self._analyze_htmli,
             VulnType.LOGIC: self._analyze_logic,
             VulnType.CSRF: self._analyze_csrf,
         }
@@ -189,33 +189,47 @@ class ResponseAnalyzer:
 
         return None
 
-    def _analyze_ldap(self, payload: str, response: str, status: int,
-                      resp_time: float, field: str) -> Optional[VulnResult]:
-        """Detecta LDAP Injection."""
+    def _analyze_xpath(self, payload: str, response: str, status: int,
+                       resp_time: float, field: str) -> Optional[VulnResult]:
+        """Detecta XPath Injection: errores de motor XPath o comportamiento boolean-based."""
         response_lower = response.lower()
 
-        for pattern in ldap.DETECTION_PATTERNS:
-            if pattern in response_lower and pattern not in self.base_response.lower():
+        # Técnica 1: errores específicos del motor XPath
+        for pattern in xpath.DETECTION_PATTERNS:
+            if re.search(pattern, response_lower) and not re.search(pattern, self.base_response.lower()):
                 return VulnResult(
-                    vuln_type=VulnType.LDAP,
-                    severity=SEVERITY_MAP[VulnType.LDAP],
+                    vuln_type=VulnType.XPATH,
+                    severity=SEVERITY_MAP[VulnType.XPATH],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, pattern, 100),
-                    description=f"LDAP Injection: patrón '{pattern}' detectado en campo '{field}'",
-                    confidence=0.7,
+                    description=f"XPath Injection: error de motor XPath detectado en campo '{field}'",
+                    confidence=0.85,
                 )
 
-        # Si el payload wildcard (*) devuelve más datos que la base
-        if payload.strip() == "*" and len(response) > len(self.base_response) * 1.3:
+        # Técnica 2: boolean-based — payload tautológico devuelve más contenido
+        tautological = ["' or '1'='1", "' or 1=1 or 'a'='b", "x' or 'x'='x"]
+        if payload in tautological and len(response) > len(self.base_response) * 1.10:
             return VulnResult(
-                vuln_type=VulnType.LDAP,
-                severity=SEVERITY_MAP[VulnType.LDAP],
+                vuln_type=VulnType.XPATH,
+                severity=SEVERITY_MAP[VulnType.XPATH],
                 field_name=field,
                 payload=payload,
-                evidence=f"Wildcard devuelve más datos: {len(response)} vs {len(self.base_response)}",
-                description=f"LDAP Injection: wildcard acepta todos los registros en '{field}'",
-                confidence=0.6,
+                evidence=f"Respuesta tautológica: {len(response)} bytes vs base {len(self.base_response)} bytes",
+                description=f"XPath Injection boolean-based: payload tautológico devuelve más datos en '{field}'",
+                confidence=0.70,
+            )
+
+        # Técnica 3: error 500 inesperado al inyectar sintaxis XPath
+        if status == 500 and self.base_status != 500:
+            return VulnResult(
+                vuln_type=VulnType.XPATH,
+                severity=SEVERITY_MAP[VulnType.XPATH],
+                field_name=field,
+                payload=payload,
+                evidence=f"Error HTTP 500 con payload XPath (base: {self.base_status})",
+                description=f"XPath Injection: error interno del servidor al procesar sintaxis XPath en '{field}'",
+                confidence=0.60,
             )
 
         return None
@@ -301,21 +315,82 @@ class ResponseAnalyzer:
 
         return None
 
-    def _analyze_lfi(self, payload: str, response: str, status: int,
-                     resp_time: float, field: str) -> Optional[VulnResult]:
-        """Detecta Local File Inclusion."""
+    def _analyze_file_upload(self, payload: str, response: str, status: int,
+                             resp_time: float, field: str) -> Optional[VulnResult]:
+        """Detecta carga de archivos sin restricciones.
+
+        El payload es el nombre del archivo (filename de la tupla). El engine
+        envía la petición multipart y aquí se analiza si el servidor aceptó
+        el fichero sin rechazar su extensión o tipo MIME.
+        """
         response_lower = response.lower()
 
-        for pattern in lfi.DETECTION_PATTERNS:
-            if pattern.lower() in response_lower and pattern.lower() not in self.base_response.lower():
+        # Detección de alta confianza: probe ejecutado remotamente
+        if "gung12_probe" in response_lower:
+            return VulnResult(
+                vuln_type=VulnType.FILE_UPLOAD,
+                severity=SEVERITY_MAP[VulnType.FILE_UPLOAD],
+                field_name=field,
+                payload=payload,
+                evidence=self._extract_context(response, "gung12_probe", 150),
+                description=f"Carga de archivos sin restricciones CRÍTICA: el fichero PHP fue ejecutado en el servidor (campo '{field}')",
+                confidence=0.95,
+            )
+
+        # Detección media: servidor reporta éxito con fichero malicioso
+        for pattern in file_upload.DETECTION_PATTERNS:
+            if pattern in response_lower and pattern not in self.base_response.lower():
+                # Verificar que el payload tiene extensión ejecutable
+                exec_exts = [".php", ".phtml", ".php3", ".php5", ".asp", ".aspx", ".shtml", ".htaccess", ".svg"]
+                is_exec = any(ext in payload.lower() for ext in exec_exts)
+                if is_exec:
+                    return VulnResult(
+                        vuln_type=VulnType.FILE_UPLOAD,
+                        severity=SEVERITY_MAP[VulnType.FILE_UPLOAD],
+                        field_name=field,
+                        payload=payload,
+                        evidence=self._extract_context(response, pattern, 150),
+                        description=f"Carga de archivos sin restricciones: fichero con extensión ejecutable aceptado en campo '{field}'",
+                        confidence=0.75,
+                    )
+
+        return None
+
+    def _analyze_htmli(self, payload: str, response: str, status: int,
+                       resp_time: float, field: str) -> Optional[VulnResult]:
+        """Detecta HTML Injection: etiquetas HTML reflejadas sin escapar.
+
+        Diferencia con XSS: los payloads no contienen atributos de evento JS.
+        Si el HTML aparece sin encoding en la respuesta, hay inyección HTML
+        aunque no haya ejecución de scripts.
+        """
+        # Reflexión directa del payload (sin escapar)
+        if payload.lower() in response.lower():
+            # Asegurar que no está codificado como &lt; o &gt;
+            escaped = payload.replace("<", "&lt;").replace(">", "&gt;")
+            if escaped not in response:
                 return VulnResult(
-                    vuln_type=VulnType.LFI,
-                    severity=SEVERITY_MAP[VulnType.LFI],
+                    vuln_type=VulnType.HTMLI,
+                    severity=SEVERITY_MAP[VulnType.HTMLI],
                     field_name=field,
                     payload=payload,
-                    evidence=self._extract_context(response, pattern, 150),
-                    description=f"LFI: contenido de archivo detectado en campo '{field}'",
-                    confidence=0.9,
+                    evidence=self._extract_context(response, payload, 100),
+                    description=f"HTML Injection: etiquetas HTML reflejadas sin codificar en campo '{field}'",
+                    confidence=0.85,
+                )
+
+        # Verificar patrones de detección
+        response_lower = response.lower()
+        for pattern in htmli.DETECTION_PATTERNS:
+            if pattern.lower() in response_lower and pattern.lower() not in self.base_response.lower():
+                return VulnResult(
+                    vuln_type=VulnType.HTMLI,
+                    severity=SEVERITY_MAP[VulnType.HTMLI],
+                    field_name=field,
+                    payload=payload,
+                    evidence=self._extract_context(response, pattern, 100),
+                    description=f"HTML Injection: patrón HTML detectado sin escapar en campo '{field}'",
+                    confidence=0.75,
                 )
 
         return None
@@ -352,27 +427,6 @@ class ResponseAnalyzer:
                     description=f"Open Redirect: redirección detectada en campo '{field}'",
                     confidence=0.75,
                 )
-
-        return None
-
-    def _analyze_idor(self, payload: str, response: str, status: int,
-                      resp_time: float, field: str) -> Optional[VulnResult]:
-        """Detecta IDOR comparando respuestas con diferentes IDs."""
-        # Si cambiamos el ID y obtenemos 200 con contenido diferente
-        if status == 200 and response != self.base_response and len(response) > 100:
-            # Verificar que la respuesta contiene datos de otro usuario
-            response_lower = response.lower()
-            for pattern in ["username", "email", "profile", "user"]:
-                if pattern in response_lower:
-                    return VulnResult(
-                        vuln_type=VulnType.IDOR,
-                        severity=SEVERITY_MAP[VulnType.IDOR],
-                        field_name=field,
-                        payload=payload,
-                        evidence=f"Acceso con ID={payload} retorna datos ({len(response)} bytes)",
-                        description=f"IDOR: acceso a recursos de otros usuarios con ID modificado en '{field}'",
-                        confidence=0.5,
-                    )
 
         return None
 

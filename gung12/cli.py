@@ -50,7 +50,7 @@ def parse_test_types(test_string: str) -> list:
 @click.command()
 @click.option("-u", "--url", required=True, help="URL del formulario a analizar")
 @click.option("-T", "--tests", default="all",
-              help="Tipos de pruebas separados por coma (xss,sqli,ssti,ldap,cmdi,nosql,xxe,csrf,lfi,redirect,idor,logic)")
+              help="Tipos de pruebas separados por coma (xss,sqli,ssti,xpath,cmdi,nosql,xxe,csrf,file_upload,redirect,htmli,logic)")
 @click.option("-F", "--full", is_flag=True, default=False,
               help="Modo exhaustivo (más payloads)")
 @click.option("-o", "--output", default=None,
@@ -63,6 +63,8 @@ def parse_test_types(test_string: str) -> list:
               help="Índice del formulario a analizar (si hay varios)")
 @click.option("--timeout", default=10, type=int,
               help="Timeout de conexión en segundos")
+@click.option("--spa", "use_spa", is_flag=True, default=False,
+              help="Usar Playwright para renderizar SPAs (requiere: pip install playwright && playwright install chromium)")
 @click.option("--ai", "use_ai", is_flag=True, default=False,
               help="Usar IA para análisis avanzado de resultados")
 @click.option("--ai-provider", default="gemini",
@@ -72,7 +74,7 @@ def parse_test_types(test_string: str) -> list:
 @click.version_option(version=__version__)
 def main(url: str, tests: str, full: bool, output: Optional[str],
          cookie: Optional[str], test_only: bool, form_index: int,
-         timeout: int, use_ai: bool, ai_provider: str,
+         timeout: int, use_spa: bool, use_ai: bool, ai_provider: str,
          ai_key: Optional[str]):
     """Gung12 - Detector de vulnerabilidades en formularios web.
 
@@ -90,7 +92,12 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
 
     # 1. Parsear formulario
     click.echo(f"[*] Analizando formulario en: {url}")
-    parser = FormParser(cookies=cookies, timeout=timeout)
+    if use_spa:
+        click.echo(click.style("[*] Modo SPA: usando Playwright para renderizar JavaScript", fg="cyan"))
+        from gung12.spa_parser import SPAFormParser
+        parser = SPAFormParser(cookies=cookies, timeout=timeout)
+    else:
+        parser = FormParser(cookies=cookies, timeout=timeout)
 
     if test_only:
         result = parser.test_form(url)
