@@ -51,21 +51,21 @@ class SPAFormParser(FormParser):
             name = input_tag.get("name")
             if not name:
                 continue
-            ftype = (input_tag.get("type") or "text").lower()
+            ftype = (str(input_tag.get("type") or "text")).lower()
             if ftype in skip_types_fb:
                 continue
             if ftype in injectable_types:
                 fields.append(FormField(
-                    name=name,
+                    name=str(name),
                     field_type=ftype,
-                    value=input_tag.get("value", ""),
+                    value=str(input_tag.get("value") or ""),
                     required=input_tag.get("required") is not None,
                 ))
         for textarea in soup.find_all("textarea"):
             name = textarea.get("name")
             if name:
                 fields.append(FormField(
-                    name=name,
+                    name=str(name),
                     field_type="textarea",
                     value=textarea.string or "",
                 ))
@@ -114,14 +114,7 @@ class SPAFormParser(FormParser):
                         for c in self.session.cookies
                     ]
                     if playwright_cookies:
-                        context.add_cookies(playwright_cookies)
-
-                page = context.new_page()
-                page.set_extra_http_headers({
-                    "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
-                })
-
-                # Flag: solo capturar peticiones DESPUÉS de hacer clic en submit
+                        context.add_cookies(playwright_cookies)  # type: ignore[arg-type]
                 capture_active = {"value": False}
 
                 def on_request(request):
@@ -143,9 +136,9 @@ class SPAFormParser(FormParser):
                 page.on("request", on_request)
 
                 page.goto(url, timeout=self.timeout * 1000)
-                page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)
+                page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)  # type: ignore[arg-type]  # type: ignore[arg-type]
 
-                # Esperar los campos específicos (más fiable que selectores genéricos)
+
                 try:
                     specific_selector = ", ".join(f"input[name='{f.name}']" for f in fields)
                     page.wait_for_selector(specific_selector, state="visible", timeout=8000)
@@ -269,7 +262,7 @@ class SPAFormParser(FormParser):
                     for c in self.session.cookies
                 ]
                 if playwright_cookies:
-                    context.add_cookies(playwright_cookies)
+                    context.add_cookies(playwright_cookies)  # type: ignore[arg-type]
 
             page = context.new_page()
             page.set_extra_http_headers({
@@ -277,7 +270,7 @@ class SPAFormParser(FormParser):
             })
 
             page.goto(url, timeout=self.timeout * 1000)
-            page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)
+            page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)  # type: ignore[arg-type]
 
             # Para SPAs con hash routing (Angular, React Router) el componente
             # se monta DESPUÉS de networkidle. Esperar a que aparezca un form o input.

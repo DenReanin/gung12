@@ -467,6 +467,19 @@ class ResponseAnalyzer:
         """Detecta ausencia de protección CSRF."""
         if form and not form.has_csrf_token:
             if form.method.upper() == "POST":
+                # APIs REST/JSON: probablemente usan JWT/Bearer en headers (stateless).
+                # CSRF requiere cookies de sesión para ser explotable; si el cuerpo
+                # es JSON, reducir a INFO para evitar falsos positivos en APIs JWT.
+                if getattr(form, "body_type", "form") == "json":
+                    return VulnResult(
+                        vuln_type=VulnType.CSRF,
+                        severity=Severity.INFO,
+                        field_name="(formulario)",
+                        payload="N/A - análisis estático",
+                        evidence=f"API JSON sin token CSRF explícito. Campos: {[f.name for f in form.fields]}",
+                        description="CSRF (INFO): API REST/JSON sin token — verificar si usa JWT/Bearer; si usa cookies de sesión, vulnerabilidad real",
+                        confidence=0.4,
+                    )
                 return VulnResult(
                     vuln_type=VulnType.CSRF,
                     severity=SEVERITY_MAP[VulnType.CSRF],

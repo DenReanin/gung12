@@ -136,7 +136,7 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     click.echo()
 
     # 3. Ejecutar escaneo
-    engine = ScanEngine(cookies=cookies, timeout=timeout, verbose=True)
+    engine = ScanEngine(cookies=cookies, timeout=timeout, verbose=True, use_spa=use_spa)
 
     def progress_callback(msg):
         click.echo(f"    {msg}")
