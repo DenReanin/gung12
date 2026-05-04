@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string, redirect
+from flask import Flask, request, render_template_string, redirect  # type: ignore
 
 app = Flask(__name__)
 
@@ -24,7 +24,7 @@ def xxe():
     if request.method == "POST":
         content = request.form.get("xmldata", "")
         try:
-            from lxml import etree
+            from lxml import etree  # type: ignore
             parser = etree.XMLParser(resolve_entities=True, load_dtd=True, no_network=False)
             tree = etree.fromstring(content.encode("utf-8", errors="replace"), parser)
             result = etree.tostring(tree, encoding="unicode")

@@ -115,6 +115,8 @@ class SPAFormParser(FormParser):
                     ]
                     if playwright_cookies:
                         context.add_cookies(playwright_cookies)  # type: ignore[arg-type]
+
+                page = context.new_page()
                 capture_active = {"value": False}
 
                 def on_request(request):

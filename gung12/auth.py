@@ -27,11 +27,11 @@ def perform_login(login_url: str, username: str, password: str,
     if not form:
         raise RuntimeError(f"No se encontró formulario de login en {login_url}")
 
-    action = form.get("action", login_url)
+    action = str(form.get("action") or login_url)
     if not action.startswith("http"):
         action = urljoin(login_url, action)
 
-    method = (form.get("method") or "post").upper()
+    method = str(form.get("method") or "post").upper()
 
     # Construir datos del formulario
     data: dict = {}
@@ -42,12 +42,13 @@ def perform_login(login_url: str, username: str, password: str,
         name = inp.get("name")
         if not name:
             continue
+        name = str(name)
         tag = inp.name  # 'input', 'button', etc.
-        itype = (inp.get("type") or ("submit" if tag == "button" else "text")).lower()
+        itype = str(inp.get("type") or ("submit" if tag == "button" else "text")).lower()
         if itype in ("button", "image", "reset"):
             continue
 
-        value = inp.get("value", "")
+        value = str(inp.get("value") or "")
         name_lower = name.lower()
 
         if itype == "submit":
