@@ -14,17 +14,25 @@ from gung12.payloads import get_payloads
 from gung12.analyzer import ResponseAnalyzer
 
 
+# Tipos que indican página con reflexión total (alta confianza)
+_REFLECTION_INDICATORS = {VulnType.XSS, VulnType.HTMLI}
+# Tipos susceptibles de falso positivo cuando hay reflexión total
+_REFLECTION_SUSCEPTIBLE = {VulnType.SQLI, VulnType.CMDI, VulnType.NOSQL, VulnType.SSTI}
+
+
 class ScanEngine:
     """Motor de pruebas que lanza payloads contra formularios."""
 
     def __init__(self, cookies: Optional[dict] = None, timeout: int = 10,
-                 verbose: bool = False, use_spa: bool = False):
+                 verbose: bool = False, use_spa: bool = False,
+                 waf_bypass: bool = False):
         self.session = requests.Session()
         if cookies:
             self.session.cookies.update(cookies)
         self.timeout = timeout
         self.verbose = verbose
         self.use_spa = use_spa
+        self.waf_bypass = waf_bypass
         self.session.headers.update({
             "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
         })
@@ -109,27 +117,34 @@ class ScanEngine:
 
             for field in injectable:
                 for payload in payloads:
-                    response_text, status_code, resp_time = self._send_payload(
-                        form, field.name, payload
-                    )
+                    # WAF bypass: ampliar con variantes encoded si está activo
+                    payload_list = [payload]
+                    if self.waf_bypass:
+                        from gung12.waf_bypass import generate_bypass_variants
+                        payload_list += generate_bypass_variants(payload, vuln_type.value)
 
-                    result = analyzer.analyze(
-                        vuln_type=vuln_type,
-                        payload=payload,
-                        response_text=response_text,
-                        status_code=status_code,
-                        response_time=resp_time,
-                        field_name=field.name,
-                        form=form,
-                    )
+                    for actual_payload in payload_list:
+                        response_text, status_code, resp_time = self._send_payload(
+                            form, field.name, actual_payload
+                        )
 
-                    if result:
-                        # Evitar duplicados del mismo tipo+campo
-                        if not any(v.vuln_type == result.vuln_type and v.field_name == result.field_name
-                                   for v in all_vulns):
-                            all_vulns.append(result)
-                            if callback:
-                                callback(f"  [!] {vuln_type.value.upper()} detectado en '{field.name}': {payload[:60]}")
+                        result = analyzer.analyze(
+                            vuln_type=vuln_type,
+                            payload=actual_payload,
+                            response_text=response_text,
+                            status_code=status_code,
+                            response_time=resp_time,
+                            field_name=field.name,
+                            form=form,
+                        )
+
+                        if result:
+                            if not any(v.vuln_type == result.vuln_type and v.field_name == result.field_name
+                                       for v in all_vulns):
+                                all_vulns.append(result)
+                                if callback:
+                                    callback(f"  [!] {vuln_type.value.upper()} detectado en '{field.name}': {actual_payload[:60]}")
+                            break  # Primer payload que detecta es suficiente
 
 
         # DOM XSS pass: solo cuando --spa activo
@@ -143,6 +158,10 @@ class ScanEngine:
                     all_vulns.append(result)
                     if callback:
                         callback(f"  [!] DOM XSS detectado en '{result.field_name}': {result.payload[:60]}")
+
+        # Filtro de reflexión total: si XSS/HTMLI alta confianza en un campo,
+        # marcar SQLi/CMDi/NoSQL del mismo campo como posible artefacto
+        self._apply_reflection_filter(all_vulns)
 
         return ScanResult(
             url=form.url,
@@ -204,6 +223,20 @@ class ScanEngine:
             return "", 0, self.timeout
         except requests.RequestException:
             return "", 0, 0.0
+
+    def _apply_reflection_filter(self, vulns: List[VulnResult]) -> None:
+        """Post-proceso: si XSS/HTMLI con confianza ≥0.80 en un campo,
+        reduce la confianza de SQLi/CMDi/NoSQL/SSTI en ese mismo campo
+        y los marca como posibles artefactos de reflexión total."""
+        reflected_fields = {
+            v.field_name for v in vulns
+            if v.vuln_type in _REFLECTION_INDICATORS and v.confidence >= 0.80
+        }
+        for v in vulns:
+            if v.field_name in reflected_fields and v.vuln_type in _REFLECTION_SUSCEPTIBLE:
+                v.confidence = min(v.confidence, 0.55)
+                v.reflection_artifact = True
+                v.description += " [posible artefacto de reflexión — verificar manualmente]"
 
     def _scan_dom_xss(self, form: FormData, payloads: List[str]) -> List[VulnResult]:
         """Detecta DOM XSS usando Playwright: captura alert() disparados por payloads.

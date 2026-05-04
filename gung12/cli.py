@@ -71,11 +71,20 @@ def parse_test_types(test_string: str) -> list:
               help="Proveedor de IA: gemini, groq")
 @click.option("--ai-key", default=None,
               help="API key del proveedor de IA (o variable de entorno)")
+@click.option("--waf-bypass", "waf_bypass", is_flag=True, default=False,
+              help="Activar técnicas de evasión WAF (URL encoding, case variation, null bytes)")
+@click.option("--login-url", default=None,
+              help="URL del formulario de login para autenticación previa automática")
+@click.option("--login-user", default=None,
+              help="Usuario para autenticación previa (usar con --login-url)")
+@click.option("--login-pass", default=None,
+              help="Contraseña para autenticación previa (usar con --login-url)")
 @click.version_option(version=__version__)
 def main(url: str, tests: str, full: bool, output: Optional[str],
          cookie: Optional[str], test_only: bool, form_index: int,
          timeout: int, use_spa: bool, use_ai: bool, ai_provider: str,
-         ai_key: Optional[str]):
+         ai_key: Optional[str], waf_bypass: bool,
+         login_url: Optional[str], login_user: Optional[str], login_pass: Optional[str]):
     """Gung12 - Detector de vulnerabilidades en formularios web.
 
     Analiza un formulario web específico mediante inyección de payloads
@@ -89,6 +98,37 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
 
     # Parsear cookies
     cookies = parse_cookies(cookie) if cookie else None
+
+    # 0. Autenticación previa automática (--login-url)
+    pre_auth_session = None
+    if login_url:
+        if not login_user or not login_pass:
+            click.echo(click.style("[ERROR] --login-url requiere también --login-user y --login-pass", fg="red"))
+            sys.exit(1)
+        click.echo(f"[*] Autenticando en: {login_url}")
+        try:
+            from gung12.auth import perform_login
+            import requests as _req
+            pre_auth_session = _req.Session()
+            pre_auth_session.headers.update({
+                "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
+            })
+            if cookies:
+                pre_auth_session.cookies.update(cookies)
+            success = perform_login(login_url, login_user, login_pass,
+                                    pre_auth_session, timeout=timeout)
+            if success:
+                click.echo(click.style("[+] Login completado correctamente", fg="green"))
+                # Fusionar cookies de sesión obtenidas del login
+                cookies = dict(pre_auth_session.cookies)
+            else:
+                click.echo(click.style("[!] Login devolvió 401/403 — credenciales incorrectas", fg="yellow"))
+        except Exception as e:
+            click.echo(click.style(f"[ERROR] Autenticación previa fallida: {e}", fg="red"))
+            sys.exit(1)
+
+    if waf_bypass:
+        click.echo(click.style("[*] Modo WAF bypass activado — se añaden variantes encoded a los payloads", fg="cyan"))
 
     # 1. Parsear formulario
     click.echo(f"[*] Analizando formulario en: {url}")
@@ -136,7 +176,8 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     click.echo()
 
     # 3. Ejecutar escaneo
-    engine = ScanEngine(cookies=cookies, timeout=timeout, verbose=True, use_spa=use_spa)
+    engine = ScanEngine(cookies=cookies, timeout=timeout, verbose=True,
+                        use_spa=use_spa, waf_bypass=waf_bypass)
 
     def progress_callback(msg):
         click.echo(f"    {msg}")
@@ -171,8 +212,9 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     if scan_result.vulnerabilities:
         click.echo(click.style(f" VULNERABILIDADES ENCONTRADAS: {len(scan_result.vulnerabilities)}", fg="red", bold=True))
         for v in scan_result.vulnerabilities:
+            artifact_tag = click.style(" [reflexión?]", fg="yellow") if v.reflection_artifact else ""
             click.echo(f"  {click.style(f'[{v.vuln_type.value.upper()}]', fg='red')} "
-                        f"Vulnerabilidad en '{v.field_name}': {v.description}")
+                        f"Vulnerabilidad en '{v.field_name}': {v.description}{artifact_tag}")
     else:
         click.echo(click.style(" No se detectaron vulnerabilidades.", fg="green"))
 

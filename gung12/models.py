@@ -81,6 +81,7 @@ class VulnResult:
     evidence: str
     description: str
     confidence: float = 0.0  # 0.0 - 1.0
+    reflection_artifact: bool = False  # True si es posible falso positivo por reflexión total
 
 
 @dataclass
@@ -123,6 +124,7 @@ class ScanResult:
                     "evidence": v.evidence[:500],
                     "description": v.description,
                     "confidence": v.confidence,
+                    "reflection_artifact": v.reflection_artifact,
                 }
                 for v in self.vulnerabilities
             ],
