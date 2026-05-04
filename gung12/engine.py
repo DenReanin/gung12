@@ -9,7 +9,7 @@ import json as _json
 import requests
 from typing import List, Optional
 
-from gung12.models import FormData, VulnType, VulnResult, ScanResult, SEVERITY_MAP
+from gung12.models import FormData, VulnType, VulnResult, ScanResult
 from gung12.payloads import get_payloads
 from gung12.analyzer import ResponseAnalyzer
 
@@ -25,7 +25,6 @@ class ScanEngine:
         self.timeout = timeout
         self.verbose = verbose
         self.use_spa = use_spa
-        self.total_requests = 0
         self.session.headers.update({
             "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
         })
@@ -33,8 +32,6 @@ class ScanEngine:
     def scan(self, form: FormData, test_types: List[VulnType],
              full_mode: bool = False, callback=None) -> ScanResult:
         """Ejecuta un escaneo completo contra un formulario."""
-        start_time = time.time()
-        self.total_requests = 0
 
         # Obtener respuesta base
         base_response, base_status, base_time = self._send_base_request(form)
@@ -81,7 +78,6 @@ class ScanEngine:
                         response_text, status_code, resp_time = self._send_file_payload(
                             form, field.name, payload_tuple
                         )
-                        self.total_requests += 1
 
                         filename = payload_tuple[0] if isinstance(payload_tuple, tuple) else payload_tuple
                         result = analyzer.analyze(
@@ -116,7 +112,6 @@ class ScanEngine:
                     response_text, status_code, resp_time = self._send_payload(
                         form, field.name, payload
                     )
-                    self.total_requests += 1
 
                     result = analyzer.analyze(
                         vuln_type=vuln_type,
@@ -136,7 +131,6 @@ class ScanEngine:
                             if callback:
                                 callback(f"  [!] {vuln_type.value.upper()} detectado en '{field.name}': {payload[:60]}")
 
-        duration = time.time() - start_time
 
         # DOM XSS pass: solo cuando --spa activo
         if self.use_spa and VulnType.XSS in test_types:
@@ -155,8 +149,6 @@ class ScanEngine:
             form=form,
             vulnerabilities=all_vulns,
             scan_mode="full" if full_mode else "quick",
-            duration_seconds=round(duration, 2),
-            total_requests=self.total_requests,
         )
 
     def _send_base_request(self, form: FormData) -> tuple:
@@ -171,7 +163,6 @@ class ScanEngine:
             else:
                 resp = self.session.post(form.action, data=data, timeout=self.timeout)
             elapsed = time.time() - start
-            self.total_requests += 1
             return resp.text, resp.status_code, elapsed
         except requests.RequestException:
             return "", 0, 0.0
@@ -286,7 +277,6 @@ class ScanEngine:
                         if dialog_info["fired"]:
                             results.append(VulnResult(
                                 vuln_type=VulnType.XSS,
-                                severity=SEVERITY_MAP[VulnType.XSS],
                                 field_name=field.name,
                                 payload=payload,
                                 evidence=f"Alert JavaScript ejecutado: '{dialog_info['message']}'",

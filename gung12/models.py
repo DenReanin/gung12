@@ -6,14 +6,6 @@ from enum import Enum
 from datetime import datetime
 
 
-class Severity(Enum):
-    CRITICAL = "CRITICA"
-    HIGH = "ALTA"
-    MEDIUM = "MEDIA"
-    LOW = "BAJA"
-    INFO = "INFO"
-
-
 class VulnType(Enum):
     XSS = "xss"
     SQLI = "sqli"
@@ -27,23 +19,6 @@ class VulnType(Enum):
     OPEN_REDIRECT = "redirect"
     HTMLI = "htmli"
     LOGIC = "logic"
-
-
-# Mapeo de tipo de vulnerabilidad a severidad por defecto
-SEVERITY_MAP = {
-    VulnType.XSS: Severity.HIGH,
-    VulnType.SQLI: Severity.CRITICAL,
-    VulnType.SSTI: Severity.CRITICAL,
-    VulnType.XPATH: Severity.HIGH,
-    VulnType.CMDI: Severity.CRITICAL,
-    VulnType.NOSQL: Severity.HIGH,
-    VulnType.XXE: Severity.HIGH,
-    VulnType.CSRF: Severity.MEDIUM,
-    VulnType.FILE_UPLOAD: Severity.HIGH,
-    VulnType.OPEN_REDIRECT: Severity.MEDIUM,
-    VulnType.HTMLI: Severity.MEDIUM,
-    VulnType.LOGIC: Severity.LOW,
-}
 
 
 @dataclass
@@ -101,7 +76,6 @@ class FormData:
 class VulnResult:
     """Resultado de una detección de vulnerabilidad."""
     vuln_type: VulnType
-    severity: Severity
     field_name: str
     payload: str
     evidence: str
@@ -117,21 +91,11 @@ class ScanResult:
     vulnerabilities: List[VulnResult] = field(default_factory=list)
     scan_mode: str = "quick"
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    duration_seconds: float = 0.0
-    total_requests: int = 0
     ai_analysis: Optional[str] = None
 
     @property
     def has_vulnerabilities(self) -> bool:
         return len(self.vulnerabilities) > 0
-
-    @property
-    def critical_count(self) -> int:
-        return sum(1 for v in self.vulnerabilities if v.severity == Severity.CRITICAL)
-
-    @property
-    def high_count(self) -> int:
-        return sum(1 for v in self.vulnerabilities if v.severity == Severity.HIGH)
 
     def to_dict(self) -> dict:
         """Convierte el resultado a diccionario para JSON."""
@@ -139,8 +103,6 @@ class ScanResult:
             "url": self.url,
             "scan_mode": self.scan_mode,
             "timestamp": self.timestamp,
-            "duration_seconds": self.duration_seconds,
-            "total_requests": self.total_requests,
             "form": {
                 "action": self.form.action,
                 "method": self.form.method,
@@ -152,15 +114,10 @@ class ScanResult:
             },
             "summary": {
                 "total_vulnerabilities": len(self.vulnerabilities),
-                "critical": self.critical_count,
-                "high": self.high_count,
-                "medium": sum(1 for v in self.vulnerabilities if v.severity == Severity.MEDIUM),
-                "low": sum(1 for v in self.vulnerabilities if v.severity == Severity.LOW),
             },
             "vulnerabilities": [
                 {
                     "type": v.vuln_type.value,
-                    "severity": v.severity.value,
                     "field": v.field_name,
                     "payload": v.payload,
                     "evidence": v.evidence[:500],

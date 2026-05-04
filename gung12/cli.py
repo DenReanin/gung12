@@ -7,7 +7,7 @@ import click
 from typing import Optional
 
 from gung12 import __version__
-from gung12.models import VulnType, Severity
+from gung12.models import VulnType
 from gung12.parser import FormParser
 from gung12.engine import ScanEngine
 from gung12.reporter import ReportGenerator
@@ -68,7 +68,7 @@ def parse_test_types(test_string: str) -> list:
 @click.option("--ai", "use_ai", is_flag=True, default=False,
               help="Usar IA para análisis avanzado de resultados")
 @click.option("--ai-provider", default="gemini",
-              help="Proveedor de IA: gemini, groq, openai")
+              help="Proveedor de IA: gemini, groq")
 @click.option("--ai-key", default=None,
               help="API key del proveedor de IA (o variable de entorno)")
 @click.version_option(version=__version__)
@@ -166,24 +166,13 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     click.echo(click.style(f"{'='*60}", fg="cyan"))
     click.echo(f" URL:        {scan_result.url}")
     click.echo(f" Modo:       {scan_result.scan_mode}")
-    click.echo(f" Duracion:   {scan_result.duration_seconds}s")
-    click.echo(f" Peticiones: {scan_result.total_requests}")
     click.echo()
 
     if scan_result.vulnerabilities:
         click.echo(click.style(f" VULNERABILIDADES ENCONTRADAS: {len(scan_result.vulnerabilities)}", fg="red", bold=True))
-        for v in sorted(scan_result.vulnerabilities,
-                        key=lambda x: list(Severity).index(x.severity)):
-            severity_colors = {
-                Severity.CRITICAL: "red",
-                Severity.HIGH: "yellow",
-                Severity.MEDIUM: "yellow",
-                Severity.LOW: "green",
-                Severity.INFO: "blue",
-            }
-            color = severity_colors.get(v.severity, "white")
-            click.echo(f"  {click.style(f'[{v.severity.value}]', fg=color)} "
-                        f"{v.vuln_type.value.upper()} en '{v.field_name}': {v.description}")
+        for v in scan_result.vulnerabilities:
+            click.echo(f"  {click.style(f'[{v.vuln_type.value.upper()}]', fg='red')} "
+                        f"Vulnerabilidad en '{v.field_name}': {v.description}")
     else:
         click.echo(click.style(" No se detectaron vulnerabilidades.", fg="green"))
 

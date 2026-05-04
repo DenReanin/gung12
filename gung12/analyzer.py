@@ -8,7 +8,7 @@ import re
 import time
 from typing import Optional
 
-from gung12.models import VulnType, VulnResult, Severity, SEVERITY_MAP, FormData
+from gung12.models import VulnType, VulnResult, FormData
 from gung12.payloads import xss, sqli, ssti, xpath, cmdi, nosql, xxe, file_upload, open_redirect, htmli
 
 
@@ -59,7 +59,6 @@ class ResponseAnalyzer:
         if payload.lower() in response_lower:
             return VulnResult(
                 vuln_type=VulnType.XSS,
-                severity=SEVERITY_MAP[VulnType.XSS],
                 field_name=field,
                 payload=payload,
                 evidence=self._extract_context(response, payload, 100),
@@ -72,7 +71,6 @@ class ResponseAnalyzer:
             if pattern.lower() in response_lower and pattern.lower() not in self.base_response.lower():
                 return VulnResult(
                     vuln_type=VulnType.XSS,
-                    severity=SEVERITY_MAP[VulnType.XSS],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, pattern, 100),
@@ -92,7 +90,6 @@ class ResponseAnalyzer:
             if re.search(pattern, response_lower) and not re.search(pattern, self.base_response.lower()):
                 return VulnResult(
                     vuln_type=VulnType.SQLI,
-                    severity=SEVERITY_MAP[VulnType.SQLI],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, pattern, 150),
@@ -106,7 +103,6 @@ class ResponseAnalyzer:
             if resp_time > self.base_time + 2.5:
                 return VulnResult(
                     vuln_type=VulnType.SQLI,
-                    severity=SEVERITY_MAP[VulnType.SQLI],
                     field_name=field,
                     payload=payload,
                     evidence=f"Tiempo de respuesta: {resp_time:.1f}s (base: {self.base_time:.1f}s)",
@@ -120,7 +116,6 @@ class ResponseAnalyzer:
             if len(self.base_response) > 0 and len(response) > len(self.base_response) * 1.03:
                 return VulnResult(
                     vuln_type=VulnType.SQLI,
-                    severity=SEVERITY_MAP[VulnType.SQLI],
                     field_name=field,
                     payload=payload,
                     evidence=f"Respuesta mayor con tautología: {len(response)} vs {len(self.base_response)} bytes (+{len(response)-len(self.base_response)})",
@@ -134,7 +129,6 @@ class ResponseAnalyzer:
             if any(kw in payload.upper() for kw in sql_keywords):
                 return VulnResult(
                     vuln_type=VulnType.SQLI,
-                    severity=SEVERITY_MAP[VulnType.SQLI],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, payload, 150),
@@ -164,7 +158,6 @@ class ResponseAnalyzer:
             if payload == template and expected in response and expected not in self.base_response:
                 return VulnResult(
                     vuln_type=VulnType.SSTI,
-                    severity=SEVERITY_MAP[VulnType.SSTI],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, expected, 100),
@@ -179,7 +172,6 @@ class ResponseAnalyzer:
                 if pattern not in ("49", "343"):  # Evitar falsos positivos con números
                     return VulnResult(
                         vuln_type=VulnType.SSTI,
-                        severity=SEVERITY_MAP[VulnType.SSTI],
                         field_name=field,
                         payload=payload,
                         evidence=self._extract_context(response, pattern, 100),
@@ -199,7 +191,6 @@ class ResponseAnalyzer:
             if re.search(pattern, response_lower) and not re.search(pattern, self.base_response.lower()):
                 return VulnResult(
                     vuln_type=VulnType.XPATH,
-                    severity=SEVERITY_MAP[VulnType.XPATH],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, pattern, 100),
@@ -212,7 +203,6 @@ class ResponseAnalyzer:
         if payload in tautological and len(response) > len(self.base_response) * 1.10:
             return VulnResult(
                 vuln_type=VulnType.XPATH,
-                severity=SEVERITY_MAP[VulnType.XPATH],
                 field_name=field,
                 payload=payload,
                 evidence=f"Respuesta tautológica: {len(response)} bytes vs base {len(self.base_response)} bytes",
@@ -224,7 +214,6 @@ class ResponseAnalyzer:
         if status == 500 and self.base_status != 500:
             return VulnResult(
                 vuln_type=VulnType.XPATH,
-                severity=SEVERITY_MAP[VulnType.XPATH],
                 field_name=field,
                 payload=payload,
                 evidence=f"Error HTTP 500 con payload XPath (base: {self.base_status})",
@@ -243,7 +232,6 @@ class ResponseAnalyzer:
             if pattern.lower() in response_lower and pattern.lower() not in self.base_response.lower():
                 return VulnResult(
                     vuln_type=VulnType.CMDI,
-                    severity=SEVERITY_MAP[VulnType.CMDI],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, pattern, 150),
@@ -255,7 +243,6 @@ class ResponseAnalyzer:
         if "sleep" in payload.lower() and resp_time > self.base_time + 2.5:
             return VulnResult(
                 vuln_type=VulnType.CMDI,
-                severity=SEVERITY_MAP[VulnType.CMDI],
                 field_name=field,
                 payload=payload,
                 evidence=f"Delay detectado: {resp_time:.1f}s (base: {self.base_time:.1f}s)",
@@ -274,7 +261,6 @@ class ResponseAnalyzer:
             if pattern in response_lower and pattern not in self.base_response.lower():
                 return VulnResult(
                     vuln_type=VulnType.NOSQL,
-                    severity=SEVERITY_MAP[VulnType.NOSQL],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, pattern, 100),
@@ -286,7 +272,6 @@ class ResponseAnalyzer:
         if ('$ne' in payload or '$gt' in payload) and len(response) > len(self.base_response) * 1.3:
             return VulnResult(
                 vuln_type=VulnType.NOSQL,
-                severity=SEVERITY_MAP[VulnType.NOSQL],
                 field_name=field,
                 payload=payload,
                 evidence=f"Respuesta mayor con operador NoSQL: {len(response)} vs {len(self.base_response)}",
@@ -305,7 +290,6 @@ class ResponseAnalyzer:
             if pattern.lower() in response_lower and pattern.lower() not in self.base_response.lower():
                 return VulnResult(
                     vuln_type=VulnType.XXE,
-                    severity=SEVERITY_MAP[VulnType.XXE],
                     field_name=field,
                     payload=payload[:200],
                     evidence=self._extract_context(response, pattern, 150),
@@ -329,7 +313,6 @@ class ResponseAnalyzer:
         if "gung12_probe" in response_lower:
             return VulnResult(
                 vuln_type=VulnType.FILE_UPLOAD,
-                severity=SEVERITY_MAP[VulnType.FILE_UPLOAD],
                 field_name=field,
                 payload=payload,
                 evidence=self._extract_context(response, "gung12_probe", 150),
@@ -346,7 +329,6 @@ class ResponseAnalyzer:
                 if is_exec:
                     return VulnResult(
                         vuln_type=VulnType.FILE_UPLOAD,
-                        severity=SEVERITY_MAP[VulnType.FILE_UPLOAD],
                         field_name=field,
                         payload=payload,
                         evidence=self._extract_context(response, pattern, 150),
@@ -371,7 +353,6 @@ class ResponseAnalyzer:
             if escaped not in response:
                 return VulnResult(
                     vuln_type=VulnType.HTMLI,
-                    severity=SEVERITY_MAP[VulnType.HTMLI],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, payload, 100),
@@ -385,7 +366,6 @@ class ResponseAnalyzer:
             if pattern.lower() in response_lower and pattern.lower() not in self.base_response.lower():
                 return VulnResult(
                     vuln_type=VulnType.HTMLI,
-                    severity=SEVERITY_MAP[VulnType.HTMLI],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, pattern, 100),
@@ -402,7 +382,6 @@ class ResponseAnalyzer:
         if status in (301, 302, 303, 307, 308):
             return VulnResult(
                 vuln_type=VulnType.OPEN_REDIRECT,
-                severity=SEVERITY_MAP[VulnType.OPEN_REDIRECT],
                 field_name=field,
                 payload=payload,
                 evidence=f"Redirección HTTP {status} detectada",
@@ -420,7 +399,6 @@ class ResponseAnalyzer:
             if pattern in response_lower and "evil.com" in response_lower:
                 return VulnResult(
                     vuln_type=VulnType.OPEN_REDIRECT,
-                    severity=SEVERITY_MAP[VulnType.OPEN_REDIRECT],
                     field_name=field,
                     payload=payload,
                     evidence=self._extract_context(response, pattern, 100),
@@ -453,7 +431,6 @@ class ResponseAnalyzer:
                 }
                 return VulnResult(
                     vuln_type=VulnType.LOGIC,
-                    severity=SEVERITY_MAP[VulnType.LOGIC],
                     field_name=field,
                     payload=payload if payload else "(vacío)",
                     evidence=f"Status {status}, sin mensaje de error, {len(response)} bytes",
@@ -473,7 +450,6 @@ class ResponseAnalyzer:
                 if getattr(form, "body_type", "form") == "json":
                     return VulnResult(
                         vuln_type=VulnType.CSRF,
-                        severity=Severity.INFO,
                         field_name="(formulario)",
                         payload="N/A - análisis estático",
                         evidence=f"API JSON sin token CSRF explícito. Campos: {[f.name for f in form.fields]}",
@@ -482,7 +458,6 @@ class ResponseAnalyzer:
                     )
                 return VulnResult(
                     vuln_type=VulnType.CSRF,
-                    severity=SEVERITY_MAP[VulnType.CSRF],
                     field_name="(formulario)",
                     payload="N/A - análisis estático",
                     evidence=f"Formulario POST sin token CSRF. Campos: {[f.name for f in form.fields]}",

@@ -1,9 +1,8 @@
-"""Módulo de análisis con IA (opcional).
+"""Módulo de análisis con IA.
 
-Soporta múltiples proveedores de IA con API gratuita:
+Soporta dos proveedores de IA con API gratuita:
 - Gemini (Google) — gemini-2.0-flash-lite con 500 RPD gratis
 - Groq — modelos Llama/Mixtral con tier gratuito
-- OpenAI-compatible — cualquier API compatible
 
 La IA se usa para validar y priorizar las detecciones,
 NO como motor de detección principal.
@@ -27,7 +26,7 @@ class AIAnalyzer:
             raise ValueError(
                 f"API key no proporcionada para '{provider}'. "
                 f"Usa --ai-key o la variable de entorno correspondiente: "
-                f"GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY"
+                f"GEMINI_API_KEY, GROQ_API_KEY"
             )
 
     def _get_api_key(self) -> Optional[str]:
@@ -35,7 +34,6 @@ class AIAnalyzer:
         env_vars = {
             "gemini": "GEMINI_API_KEY",
             "groq": "GROQ_API_KEY",
-            "openai": "OPENAI_API_KEY",
         }
         var_name = env_vars.get(self.provider, "")
         return os.environ.get(var_name)
@@ -48,10 +46,8 @@ class AIAnalyzer:
             return self._call_gemini(prompt)
         elif self.provider == "groq":
             return self._call_groq(prompt)
-        elif self.provider == "openai":
-            return self._call_openai(prompt)
         else:
-            raise ValueError(f"Proveedor no soportado: {self.provider}")
+            raise ValueError(f"Proveedor no soportado: {self.provider}. Usa 'gemini' o 'groq'.")
 
     def _build_prompt(self, result: ScanResult) -> str:
         """Construye el prompt para la IA."""
@@ -59,7 +55,6 @@ class AIAnalyzer:
         for v in result.vulnerabilities:
             vulns_summary.append({
                 "tipo": v.vuln_type.value,
-                "severidad": v.severity.value,
                 "campo": v.field_name,
                 "payload": v.payload[:100],
                 "evidencia": v.evidence[:200],
@@ -110,34 +105,6 @@ Responde en español, de forma concisa y técnica. Máximo 500 palabras."""
             },
             json={
                 "model": "llama-3.1-8b-instant",
-                "messages": [
-                    {"role": "system", "content": "Eres un experto en ciberseguridad web."},
-                    {"role": "user", "content": prompt},
-                ],
-                "max_tokens": 1024,
-                "temperature": 0.3,
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
-
-    def _call_openai(self, prompt: str) -> str:
-        """Llama a cualquier API compatible con OpenAI (incluyendo Grok/xAI)."""
-        import requests
-
-        base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        model = os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo")
-
-        response = requests.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
                 "messages": [
                     {"role": "system", "content": "Eres un experto en ciberseguridad web."},
                     {"role": "user", "content": prompt},

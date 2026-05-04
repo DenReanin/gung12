@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from gung12.models import ScanResult, Severity
+from gung12.models import ScanResult
 
 
 class ReportGenerator:
@@ -35,25 +35,10 @@ class ReportGenerator:
             # Por defecto JSON
             self.generate_json(result, output_path)
 
-    def _severity_color(self, severity: Severity) -> str:
-        colors = {
-            Severity.CRITICAL: "#dc3545",
-            Severity.HIGH: "#fd7e14",
-            Severity.MEDIUM: "#ffc107",
-            Severity.LOW: "#28a745",
-            Severity.INFO: "#17a2b8",
-        }
-        return colors.get(severity, "#6c757d")
-
-    def _severity_badge(self, severity: Severity) -> str:
-        color = self._severity_color(severity)
-        return f'<span style="background:{color};color:white;padding:2px 8px;border-radius:4px;font-size:0.85em;font-weight:bold">{severity.value}</span>'
-
     def _build_html(self, result: ScanResult) -> str:
         """Construye el HTML del informe."""
         vuln_rows = ""
-        for v in sorted(result.vulnerabilities,
-                        key=lambda x: list(Severity).index(x.severity)):
+        for v in result.vulnerabilities:
             evidence_escaped = (v.evidence
                                 .replace("&", "&amp;")
                                 .replace("<", "&lt;")
@@ -64,7 +49,6 @@ class ReportGenerator:
                                .replace(">", "&gt;"))
             vuln_rows += f"""
             <tr>
-                <td>{self._severity_badge(v.severity)}</td>
                 <td><strong>{v.vuln_type.value.upper()}</strong></td>
                 <td><code>{v.field_name}</code></td>
                 <td>{v.description}</td>
@@ -127,8 +111,7 @@ class ReportGenerator:
         <h1>Gung12 - Informe de Seguridad</h1>
         <div class="meta">
             <p><strong>URL:</strong> {result.url}</p>
-            <p><strong>Fecha:</strong> {result.timestamp}</p>
-            <p><strong>Modo:</strong> {result.scan_mode} | <strong>Peticiones:</strong> {result.total_requests} | <strong>Duracion:</strong> {result.duration_seconds}s</p>
+            <p><strong>Fecha:</strong> {result.timestamp} | <strong>Modo:</strong> {result.scan_mode}</p>
             <p><strong>Metodo:</strong> {result.form.method} | <strong>Action:</strong> {result.form.action}</p>
             <p><strong>Campos analizados:</strong> {', '.join(f.name for f in result.form.injectable_fields)}</p>
         </div>
@@ -136,30 +119,14 @@ class ReportGenerator:
 
     <div class="stats">
         <div class="stat">
-            <div class="number" style="color:#dc3545">{summary['critical']}</div>
-            <div class="label">CRITICAS</div>
-        </div>
-        <div class="stat">
-            <div class="number" style="color:#fd7e14">{summary['high']}</div>
-            <div class="label">ALTAS</div>
-        </div>
-        <div class="stat">
-            <div class="number" style="color:#ffc107">{summary['medium']}</div>
-            <div class="label">MEDIAS</div>
-        </div>
-        <div class="stat">
-            <div class="number" style="color:#28a745">{summary['low']}</div>
-            <div class="label">BAJAS</div>
-        </div>
-        <div class="stat">
             <div class="number">{summary['total_vulnerabilities']}</div>
-            <div class="label">TOTAL</div>
+            <div class="label">VULNERABILIDADES</div>
         </div>
     </div>
 
     {no_vulns_msg}
 
-    {"<table><thead><tr><th>Severidad</th><th>Tipo</th><th>Campo</th><th>Descripcion</th><th>Payload</th><th>Evidencia</th><th>Confianza</th></tr></thead><tbody>" + vuln_rows + "</tbody></table>" if result.vulnerabilities else ""}
+    {"<table><thead><tr><th>Tipo</th><th>Campo</th><th>Descripcion</th><th>Payload</th><th>Evidencia</th><th>Confianza</th></tr></thead><tbody>" + vuln_rows + "</tbody></table>" if result.vulnerabilities else ""}
 
     {ai_section}
 
