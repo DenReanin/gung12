@@ -1,0 +1,127 @@
+name: Release - Build executables
+
+# Genera ejecutables autocontenidos para Windows, Linux y macOS al publicar
+# un tag con prefijo "v" (p. ej. v1.0.0). Los artefactos se adjuntan a la
+# GitHub Release correspondiente.
+#
+# El ejecutable incluye Playwright; los binarios de Chromium se descargan
+# en el primer uso de --spa (cache local del usuario).
+#
+# Disparadores:
+#   - push de un tag "v*"        -> compila y publica release
+#   - workflow_dispatch (manual) -> compila sin publicar
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # necesario para crear/actualizar releases
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: gung12-linux
+            exe_suffix: ""
+          - os: windows-latest
+            asset_name: gung12-windows.exe
+            exe_suffix: ".exe"
+          - os: macos-latest
+            asset_name: gung12-macos
+            exe_suffix: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: pyinstaller gung12.spec --clean --noconfirm
+
+      - name: Verify executable
+        shell: bash
+        run: |
+          ./dist/gung12${{ matrix.exe_suffix }} --version
+          ./dist/gung12${{ matrix.exe_suffix }} --help | head -5
+
+      - name: Rename artifact
+        shell: bash
+        run: mv dist/gung12${{ matrix.exe_suffix }} dist/${{ matrix.asset_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}
+          retention-days: 7
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd artifacts
+          for d in */; do
+            cd "$d"
+            sha256sum * > "../$(basename "$d").sha256"
+            cd ..
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*
+          generate_release_notes: true
+          body: |
+            ## Gung12 ${{ github.ref_name }}
+
+            DAST especializado en formularios web - 12 categorías OWASP.
+
+            ### Descarga
+
+            | Plataforma | Ejecutable |
+            |---|---|
+            | Windows x64 | `gung12-windows.exe` |
+            | Linux x64 | `gung12-linux` |
+            | macOS x64 | `gung12-macos` |
+
+            ### Uso
+
+            ```bash
+            ./gung12 -u "http://target/form" -T sqli,xss -o report.html
+            ```
+
+            La primera vez que uses `--spa`, Playwright descargará Chromium
+            automáticamente en la caché de tu usuario.
+
+            ### Integridad
+
+            Compara el SHA256 de tu descarga con el fichero `.sha256` adjunto.

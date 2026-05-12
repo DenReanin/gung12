@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gung12"
+version = "1.0.0"
+description = "DAST especializado en detección de vulnerabilidades en formularios web (12 categorías)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Den Reanin Gerasimov" }
+]
+keywords = ["security", "dast", "owasp", "vulnerability-scanner", "web-security", "formularios"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "click>=8.1.0",
+    "jinja2>=3.1.0",
+    "colorama>=0.4.6",
+    "playwright>=1.40.0",
+]
+
+[project.scripts]
+gung12 = "gung12.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/DenReanin/gung12"
+Repository = "https://github.com/DenReanin/gung12"
+Issues = "https://github.com/DenReanin/gung12/issues"
+
+[tool.setuptools.packages.find]
+include = ["gung12*"]
+exclude = ["memoria*", "reportes*", "ssti_lab*", "venv*", "tests*"]

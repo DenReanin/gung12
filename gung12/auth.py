@@ -33,6 +33,15 @@ def perform_login(login_url: str, username: str, password: str,
 
     method = str(form.get("method") or "post").upper()
 
+    # Nombres habituales de campos CSRF: tienen prioridad sobre la heurística
+    # de detección de usuario/contraseña para no sobrescribir el token.
+    CSRF_FIELD_NAMES = {
+        "csrf_token", "_token", "csrfmiddlewaretoken", "authenticity_token",
+        "__requestverificationtoken", "csrf", "token", "user_token",
+        "_csrf_token", "csrftoken", "_csrf", "anti-csrf-token", "anticsrf",
+        "__csrf_magic", "xsrf_token", "_xsrf",
+    }
+
     # Construir datos del formulario
     data: dict = {}
     user_field = None
@@ -51,15 +60,25 @@ def perform_login(login_url: str, username: str, password: str,
         value = str(inp.get("value") or "")
         name_lower = name.lower()
 
+        # Campos CSRF: preservar su valor original
+        if name_lower in CSRF_FIELD_NAMES or "token" in name_lower or "csrf" in name_lower:
+            data[name] = value
+            continue
+
         if itype == "submit":
             # Incluir botón submit con su valor (algunos backends lo requieren)
             data[name] = value if value else "submit"
-        elif any(k in name_lower for k in ("user", "login", "email", "mail", "uname", "username")):
-            user_field = name
-            data[name] = username
-        elif any(k in name_lower for k in ("pass", "pwd", "password", "secret", "passwd")):
+        elif itype == "password" or any(k in name_lower for k in ("pass", "pwd", "secret")):
             pass_field = name
             data[name] = password
+        elif itype in ("text", "email", "tel") and any(
+            k in name_lower for k in ("user", "login", "email", "mail", "uname", "username")
+        ):
+            user_field = name
+            data[name] = username
+        elif itype == "hidden":
+            # Hidden no relacionado con CSRF: preservar valor del servidor
+            data[name] = value
         else:
             data[name] = value
 

@@ -1,38 +1,31 @@
-# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 *.egg-info/
+*.egg
 dist/
 build/
-*.egg
-
-# Virtual environment
+*.manifest
+*.bak
 venv/
 .venv/
 env/
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Reports generados
-reports/
+.claude/
 reportes/
+reports/
 report_*.html
 report_*.json
 *.report.json
 *.report.html
-
-# OS
+memoria/
+*.pdf
+ssti_lab/
 .DS_Store
 Thumbs.db
-
-# Environment
 .env
-
-# Memoria TFM
-memoria/
+.env.local

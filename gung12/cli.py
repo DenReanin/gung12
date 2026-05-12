@@ -3,6 +3,7 @@
 import os
 import sys
 import json
+import time
 import click
 from typing import Optional
 
@@ -13,9 +14,7 @@ from gung12.engine import ScanEngine
 from gung12.reporter import ReportGenerator
 
 
-# Todos los tipos de vulnerabilidad disponibles
 ALL_VULN_TYPES = [v for v in VulnType]
-
 VULN_TYPE_MAP = {v.value: v for v in VulnType}
 
 
@@ -43,8 +42,30 @@ def parse_test_types(test_string: str) -> list:
         if t in VULN_TYPE_MAP:
             types.append(VULN_TYPE_MAP[t])
         else:
-            click.echo(f"  Tipo desconocido: '{t}'. Tipos validos: {', '.join(VULN_TYPE_MAP.keys())}", err=True)
+            click.echo(f"[!] Tipo desconocido: '{t}'", err=True)
     return types if types else ALL_VULN_TYPES
+
+
+def severity_of(confidence: float) -> tuple:
+    """Mapea confianza numérica a (etiqueta, color) para mostrar en CLI."""
+    if confidence >= 0.85:
+        return ("ALTA", "red")
+    if confidence >= 0.65:
+        return ("MEDIA", "yellow")
+    return ("BAJA", "blue")
+
+
+# Banner ASCII al estilo clásico (sqlmap / nmap / nikto)
+BANNER = r"""
+   _____                  _ ___
+  / ____|                | |__ \
+ | |  __ _   _ _ __   __ _   ) |
+ | | |_ | | | | '_ \ / _` | / /
+ | |__| | |_| | | | | (_| |/ /_
+  \_____|\__,_|_| |_|\__, |____|
+                      __/ |
+                     |___/   v{version}
+"""
 
 
 @click.command()
@@ -79,65 +100,94 @@ def parse_test_types(test_string: str) -> list:
               help="Usuario para autenticación previa (usar con --login-url)")
 @click.option("--login-pass", default=None,
               help="Contraseña para autenticación previa (usar con --login-url)")
+@click.option("-q", "--quiet", is_flag=True, default=False,
+              help="Modo silencioso: solo muestra hallazgos y el resumen final")
+@click.option("-v", "--verbose", is_flag=True, default=False,
+              help="Modo verboso: muestra cada payload probado y el progreso por tipo")
+@click.option("--no-banner", is_flag=True, default=False,
+              help="No mostrar el banner ASCII inicial")
 @click.version_option(version=__version__)
 def main(url: str, tests: str, full: bool, output: Optional[str],
          cookie: Optional[str], test_only: bool, form_index: int,
          timeout: int, use_spa: bool, use_ai: bool, ai_provider: str,
          ai_key: Optional[str], waf_bypass: bool,
-         login_url: Optional[str], login_user: Optional[str], login_pass: Optional[str]):
+         login_url: Optional[str], login_user: Optional[str], login_pass: Optional[str],
+         quiet: bool, verbose: bool, no_banner: bool):
     """Gung12 - Detector de vulnerabilidades en formularios web.
 
     Analiza un formulario web específico mediante inyección de payloads
     para detectar 12 tipos de vulnerabilidades.
 
     Ejemplo: python -m gung12 -u "http://localhost/vuln/xss/" -T xss,sqli -o report.html
-    """
-    # Banner
-    click.echo(click.style("\n Gung12 v" + __version__ + " - Detector de Vulnerabilidades en Formularios Web", fg="cyan", bold=True))
-    click.echo(click.style(" Solo para uso autorizado en entornos de prueba\n", fg="yellow"))
 
-    # Parsear cookies
+    Uso autorizado únicamente en entornos de prueba o sistemas propios.
+    """
+    # ---- Configuración del nivel de detalle ----
+    def info(msg, **style):
+        """Mensaje informativo: oculto en modo --quiet."""
+        if not quiet:
+            click.echo(click.style(msg, **style) if style else msg)
+
+    def warn(msg):
+        click.echo(click.style(msg, fg="yellow"))
+
+    def err(msg):
+        click.echo(click.style(msg, fg="red"), err=True)
+
+    def ok(msg):
+        info(msg, fg="green")
+
+    # ---- Banner ----
+    if not no_banner and not quiet:
+        click.echo(click.style(BANNER.format(version=__version__), fg="cyan"))
+        click.echo(click.style("    DAST para formularios web - uso autorizado únicamente",
+                               fg="yellow"))
+        click.echo(click.style(f"    {time.strftime('[*] Inicio: %H:%M:%S - %Y-%m-%d')}\n",
+                               fg="white", dim=True))
+
     cookies = parse_cookies(cookie) if cookie else None
 
-    # User-Agent realista por defecto (Firefox) — evita delatar al scanner como "Gung12/1.0"
+    # User-Agent realista por defecto (Firefox) — evita delatar al scanner
     DEFAULT_UA = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
         "Gecko/20100101 Firefox/120.0"
     )
 
-    # 0. Autenticación previa automática (--login-url)
-    pre_auth_session = None
+    # ---- 0. Autenticación previa (--login-url) ----
     if login_url:
         if not login_user or not login_pass:
-            click.echo(click.style("[ERROR] --login-url requiere también --login-user y --login-pass", fg="red"))
-            sys.exit(1)
-        click.echo(f"[*] Autenticando en: {login_url}")
+            err("[ERROR] --login-url requiere también --login-user y --login-pass")
+            sys.exit(2)
+        info(f"[*] Autenticando en {login_url}")
         try:
             from gung12.auth import perform_login
             import requests as _req
-            pre_auth_session = _req.Session()
-            pre_auth_session.headers.update({"User-Agent": DEFAULT_UA})
+            pre_auth = _req.Session()
+            pre_auth.headers.update({"User-Agent": DEFAULT_UA})
             if cookies:
-                pre_auth_session.cookies.update(cookies)
+                pre_auth.cookies.update(cookies)
             success = perform_login(login_url, login_user, login_pass,
-                                    pre_auth_session, timeout=timeout)
+                                    pre_auth, timeout=timeout)
             if success:
-                click.echo(click.style("[+] Login completado correctamente", fg="green"))
-                # Fusionar cookies de sesión obtenidas del login
-                cookies = dict(pre_auth_session.cookies)
+                ok(f"[+] Login OK como '{login_user}'")
+                merged: dict = {}
+                for c in pre_auth.cookies:
+                    merged[c.name] = c.value
+                cookies = merged
             else:
-                click.echo(click.style("[!] Login devolvió 401/403 — credenciales incorrectas", fg="yellow"))
+                warn("[!] Login no confirmado - credenciales incorrectas o backend desconocido")
         except Exception as e:
-            click.echo(click.style(f"[ERROR] Autenticación previa fallida: {e}", fg="red"))
-            sys.exit(1)
+            err(f"[ERROR] Autenticación previa fallida: {e}")
+            sys.exit(2)
 
     if waf_bypass:
-        click.echo(click.style("[*] Modo WAF bypass activado — se añaden variantes encoded a los payloads", fg="cyan"))
-
-    # 1. Parsear formulario
-    click.echo(f"[*] Analizando formulario en: {url}")
+        info("[*] WAF bypass activado")
     if use_spa:
-        click.echo(click.style("[*] Modo SPA: usando Playwright para renderizar JavaScript", fg="cyan"))
+        info("[*] Modo SPA: renderizando con Playwright")
+
+    # ---- 1. Parsing del formulario ----
+    info(f"[*] Objetivo: {url}")
+    if use_spa:
         from gung12.spa_parser import SPAFormParser
         parser = SPAFormParser(cookies=cookies, timeout=timeout)
     else:
@@ -151,91 +201,133 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     try:
         forms = parser.parse_forms(url)
     except Exception as e:
-        click.echo(click.style(f"[ERROR] No se pudo acceder a la URL: {e}", fg="red"))
-        sys.exit(1)
+        err(f"[ERROR] No se pudo acceder a la URL: {e}")
+        sys.exit(2)
 
     if not forms:
-        click.echo(click.style("[ERROR] No se encontraron formularios en la URL", fg="red"))
-        sys.exit(1)
+        err("[ERROR] No se encontraron formularios en la URL")
+        sys.exit(2)
 
     if form_index >= len(forms):
-        click.echo(click.style(f"[ERROR] Índice {form_index} fuera de rango. Formularios encontrados: {len(forms)}", fg="red"))
-        sys.exit(1)
+        err(f"[ERROR] Índice {form_index} fuera de rango (formularios encontrados: {len(forms)})")
+        sys.exit(2)
 
     form = forms[form_index]
-    click.echo(f"[+] Formulario encontrado: {form.method} -> {form.action}")
-    click.echo(f"    Campos: {', '.join(f.name for f in form.fields)}")
-    click.echo(f"    Campos inyectables: {', '.join(f.name for f in form.injectable_fields)}")
-    click.echo(f"    Token CSRF: {'Si' if form.has_csrf_token else 'No'}")
+    method_action = f"{form.method} -> {form.action}"
+    fields_str = ", ".join(f.name for f in form.fields) or "(ninguno)"
+    inj_str = ", ".join(f.name for f in form.injectable_fields) or "(ninguno)"
+    csrf_str = "sí" if form.has_csrf_token else "no"
+
+    ok(f"[+] Formulario: {method_action}")
+    info(f"    Campos: {fields_str}")
+    info(f"    Inyectables: {inj_str}  ·  CSRF: {csrf_str}")
 
     if not form.injectable_fields:
-        click.echo(click.style("[!] No hay campos inyectables", fg="yellow"))
+        warn("[!] No hay campos inyectables - escaneo abortado")
         sys.exit(0)
 
-    # 2. Determinar tipos de pruebas
+    # ---- 2. Tipos de prueba ----
     test_types = parse_test_types(tests)
-    mode = "FULL" if full else "QUICK"
-    click.echo(f"\n[*] Modo: {mode}")
-    click.echo(f"[*] Pruebas: {', '.join(t.value for t in test_types)}")
-    click.echo()
+    mode = "full" if full else "quick"
+    info(f"[*] Modo {mode} · {len(test_types)} tipo(s) · {len(form.injectable_fields)} campo(s)")
+    info("")
 
-    # 3. Ejecutar escaneo
-    engine = ScanEngine(cookies=cookies, timeout=timeout, verbose=True,
+    # ---- 3. Ejecución del escaneo ----
+    engine = ScanEngine(cookies=cookies, timeout=timeout, verbose=verbose,
                         use_spa=use_spa, waf_bypass=waf_bypass)
 
     def progress_callback(msg):
-        click.echo(f"    {msg}")
+        # Los detecciones "[!] ..." emitidos por el engine en tiempo real
+        # se suprimen porque el resumen final ya las agrupa por severidad.
+        # El modo verbose imprime el progreso por tipo ("Probando ...").
+        if "[!]" in msg:
+            return
+        if verbose and not quiet:
+            click.echo(click.style(f"    {msg.strip()}", fg="white", dim=True))
 
+    t0 = time.time()
     scan_result = engine.scan(
         form=form,
         test_types=test_types,
         full_mode=full,
         callback=progress_callback,
     )
+    elapsed = time.time() - t0
 
-    # 4. Análisis con IA (opcional)
+    # ---- 4. Análisis IA (opcional) ----
     if use_ai and scan_result.vulnerabilities:
-        click.echo(f"\n[*] Ejecutando análisis con IA ({ai_provider})...")
+        info(f"\n[*] Análisis IA ({ai_provider})...")
         try:
             from gung12.ai_analyzer import AIAnalyzer
             ai = AIAnalyzer(provider=ai_provider, api_key=ai_key)
             ai_result = ai.analyze_results(scan_result)
             scan_result.ai_analysis = ai_result
-            click.echo(click.style("[+] Análisis con IA completado", fg="green"))
+            ok("[+] Análisis IA completado")
         except Exception as e:
-            click.echo(click.style(f"[!] Error en análisis IA: {e}", fg="yellow"))
+            warn(f"[!] Error en análisis IA: {e}")
 
-    # 5. Mostrar resumen
-    click.echo(click.style(f"\n{'='*60}", fg="cyan"))
-    click.echo(click.style(" RESUMEN DEL ESCANEO", fg="cyan", bold=True))
-    click.echo(click.style(f"{'='*60}", fg="cyan"))
-    click.echo(f" URL:        {scan_result.url}")
-    click.echo(f" Modo:       {scan_result.scan_mode}")
+    # ---- 5. Resumen de hallazgos ----
+    vulns = scan_result.vulnerabilities
     click.echo()
+    click.echo(click.style("[*] " + "-" * 56, fg="cyan", dim=True))
 
-    if scan_result.vulnerabilities:
-        click.echo(click.style(f" VULNERABILIDADES ENCONTRADAS: {len(scan_result.vulnerabilities)}", fg="red", bold=True))
-        for v in scan_result.vulnerabilities:
-            artifact_tag = click.style(" [reflexión?]", fg="yellow") if v.reflection_artifact else ""
-            click.echo(f"  {click.style(f'[{v.vuln_type.value.upper()}]', fg='red')} "
-                        f"Vulnerabilidad en '{v.field_name}': {v.description}{artifact_tag}")
+    if vulns:
+        # Agrupar por severidad
+        groups: dict = {"ALTA": [], "MEDIA": [], "BAJA": []}
+        for v in vulns:
+            sev_label, _ = severity_of(v.confidence)
+            groups[sev_label].append(v)
+
+        total_h = sum(len(g) for g in groups.values())
+        click.echo(click.style(f"[!] {total_h} hallazgo(s) en {elapsed:.1f}s", fg="red", bold=True))
+        click.echo()
+
+        for sev_label in ("ALTA", "MEDIA", "BAJA"):
+            for v in groups[sev_label]:
+                _, sev_color = severity_of(v.confidence)
+                tag = click.style(f"[{sev_label}]", fg=sev_color, bold=True)
+                vtype = click.style(v.vuln_type.value.upper(), fg=sev_color)
+                artifact = click.style("  [reflexión?]", fg="yellow") if v.reflection_artifact else ""
+                click.echo(f"  {tag} {vtype} en '{v.field_name}'{artifact}")
+                click.echo(click.style(f"        {v.description}", fg="white"))
+                if v.payload and v.payload != "N/A - análisis estático":
+                    payload_short = v.payload[:80] + ("..." if len(v.payload) > 80 else "")
+                    click.echo(click.style(f"        Payload: {payload_short}", fg="white", dim=True))
+                click.echo()
+
+        # Línea de conteo por severidad
+        summary = " · ".join([
+            click.style(f"{len(groups['ALTA'])} alta", fg="red", bold=True),
+            click.style(f"{len(groups['MEDIA'])} media", fg="yellow"),
+            click.style(f"{len(groups['BAJA'])} baja", fg="blue"),
+        ])
+        click.echo(f"[*] Resumen: {summary}")
     else:
-        click.echo(click.style(" No se detectaron vulnerabilidades.", fg="green"))
+        ok(f"[+] Sin hallazgos en {elapsed:.1f}s")
 
-    click.echo()
-
-    # 6. Generar informe
+    # ---- 6. Generación del informe ----
     if output:
-        # Si la ruta no tiene directorio, guardar en reportes/
         if os.path.dirname(output) == "":
-            reportes_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reportes")
+            reportes_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "reportes",
+            )
             os.makedirs(reportes_dir, exist_ok=True)
             output = os.path.join(reportes_dir, output)
         reporter = ReportGenerator()
         reporter.generate(scan_result, output)
-        click.echo(click.style(f"[+] Informe generado: {output}", fg="green"))
+        ok(f"[+] Informe: {output}")
 
     click.echo()
+
+    # ---- 7. Exit code para CI/CD ----
+    # 0 = sin hallazgos
+    # 1 = hay hallazgos de severidad ALTA o MEDIA
+    # 2 = error de ejecución (URL inaccesible, etc.) — ya gestionado arriba con sys.exit(2)
+    if vulns:
+        has_high_or_medium = any(v.confidence >= 0.65 for v in vulns)
+        sys.exit(1 if has_high_or_medium else 0)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
