@@ -21,9 +21,10 @@ from gung12.models import FormData, FormField
 class SPAFormParser(FormParser):
     """Parser de formularios que usa Playwright para renderizar SPAs.
 
-    Hereda la lógica de extracción de FormParser. Sobreescribe fetch_page()
-    para obtener el HTML tras la ejecución del JavaScript, y parse_forms()
-    para manejar SPAs que renderizan inputs sin etiqueta <form> (Angular Material).
+    Hereda la lógica de extracción de FormParser. Sobreescribe parse_forms()
+    para realizar la extracción del HTML y, si es necesario, el descubrimiento
+    del endpoint REST en una única sesión de navegador. Esto reduce a la mitad
+    el coste de lanzar Chromium.
     """
 
     def __init__(self, cookies: Optional[dict] = None, timeout: int = 10,
@@ -33,10 +34,14 @@ class SPAFormParser(FormParser):
         self.wait_state = wait_state  # "networkidle", "domcontentloaded", "load"
 
     def parse_forms(self, url: str) -> List[FormData]:
-        """Extrae formularios del HTML renderizado. Incluye fallback para SPAs sin <form>."""
+        """Extrae formularios del HTML renderizado. Incluye fallback para SPAs sin <form>.
+
+        Unifica fetch + discovery en una sola sesión Playwright cuando es necesario.
+        """
         from bs4 import BeautifulSoup
 
-        html = self.fetch_page(url)
+        # Una sola sesión Playwright para todo: HTML + (opcional) descubrimiento de endpoint
+        html, endpoint_info = self._render_and_maybe_discover(url, discover=False)
         soup = BeautifulSoup(html, "html.parser")
         forms = soup.find_all("form")
 
@@ -73,8 +78,9 @@ class SPAFormParser(FormParser):
         if not fields:
             return []
 
-        # Descubrir el endpoint real interceptando la petición POST
-        endpoint_info = self._discover_submit_endpoint(url, fields)
+        # Se necesita descubrir el endpoint real: segunda sesión Playwright pero
+        # solo aquí (no en el flujo normal con <form> presente).
+        _, endpoint_info = self._render_and_maybe_discover(url, discover=True, fields=fields)
 
         return [FormData(
             url=url,
@@ -86,207 +92,174 @@ class SPAFormParser(FormParser):
             body_type=endpoint_info["body_type"],
         )]
 
-    def _discover_submit_endpoint(self, url: str, fields: List[FormField]) -> dict:
-        """Intercepta la petición POST real al enviar el formulario SPA.
+    def _render_and_maybe_discover(self, url: str, discover: bool = False,
+                                   fields: Optional[List[FormField]] = None) -> tuple:
+        """Abre Chromium una sola vez, obtiene el HTML renderizado y, si
+        ``discover`` está activo, intenta capturar el endpoint POST real
+        enviando el formulario con valores dummy.
 
-        Rellena los campos con valores dummy (sin credenciales reales), hace clic
-        en el botón de submit y captura la URL y Content-Type de la petición POST.
-        Si no puede capturar la petición, devuelve la URL original con body_type=form.
+        Devuelve (html, endpoint_info). endpoint_info por defecto apunta a la
+        URL original con body_type='form'.
         """
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            return {"action": url, "body_type": "form"}
-
-        discovered = {"action": url, "body_type": "form"}
-
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=self.headless)
-                context = browser.new_context()
-
-                if self.session.cookies:
-                    from urllib.parse import urlparse
-                    parsed = urlparse(url)
-                    playwright_cookies = [
-                        {"name": c.name, "value": c.value,
-                         "domain": parsed.netloc, "path": "/"}
-                        for c in self.session.cookies
-                    ]
-                    if playwright_cookies:
-                        context.add_cookies(playwright_cookies)  # type: ignore[arg-type]
-
-                page = context.new_page()
-                capture_active = {"value": False}
-
-                def on_request(request):
-                    if not capture_active["value"] or request.method != "POST":
-                        return
-                    req_url = request.url
-                    # Ignorar Socket.IO, websockets y analytics
-                    excluded = ["socket.io", "heartbeat", "telemetry", "analytics", "beacon"]
-                    if any(e in req_url for e in excluded):
-                        return
-                    ct = request.headers.get("content-type", "")
-                    # Priorizar endpoints con keywords de autenticación/API
-                    auth_kw = ["login", "auth", "signin", "sign-in", "user", "session", "api"]
-                    is_auth = any(kw in req_url.lower() for kw in auth_kw)
-                    if is_auth or discovered["action"] == url:
-                        discovered["action"] = req_url
-                        discovered["body_type"] = "json" if "application/json" in ct else "form"
-
-                page.on("request", on_request)
-
-                page.goto(url, timeout=self.timeout * 1000)
-                page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)  # type: ignore[arg-type]  # type: ignore[arg-type]
-
-
-                try:
-                    specific_selector = ", ".join(f"input[name='{f.name}']" for f in fields)
-                    page.wait_for_selector(specific_selector, state="visible", timeout=8000)
-                except Exception:
-                    browser.close()
-                    return discovered
-
-                # Rellenar con valores dummy (no credenciales reales)
-                # Se infiere el tipo de valor por field_type Y por el nombre del campo
-                last_input_selector = None
-                for f in fields:
-                    selector = f"input[name='{f.name}']"
-                    name_l = f.name.lower()
-                    if f.field_type == "email" or any(k in name_l for k in ("email", "mail", "correo")):
-                        dummy = "probe@gung12.test"
-                    elif f.field_type == "password" or any(k in name_l for k in ("pass", "pwd", "clave")):
-                        dummy = "Gung12Probe!"
-                    elif f.field_type == "number":
-                        dummy = "0"
-                    elif f.field_type == "url":
-                        dummy = "http://gung12.test"
-                    elif f.field_type == "tel":
-                        dummy = "000000000"
-                    else:
-                        dummy = "gung12probe"
-                    try:
-                        # type() en lugar de fill() para disparar eventos Angular
-                        page.locator(selector).first.type(dummy, timeout=2000)
-                        last_input_selector = selector
-                    except Exception:
-                        pass
-
-                # Cerrar cualquier dialog/overlay que bloquee el formulario
-                dismiss_selectors = [
-                    "button:has-text('Dismiss')",
-                    "button:has-text('Close')",
-                    "button:has-text('No thanks')",
-                    "button:has-text('Skip')",
-                    "[aria-label='Close']",
-                    ".cdk-overlay-container button[aria-label*='ismi']",
-                ]
-                for dsel in dismiss_selectors:
-                    try:
-                        dloc = page.locator(dsel)
-                        if dloc.count() > 0 and dloc.first.is_visible():
-                            dloc.first.click(timeout=1500)
-                            page.wait_for_timeout(300)
-                    except Exception:
-                        pass
-
-                # Buscar y pulsar el botón de submit
-                submit_selectors = [
-                    "#loginButton",
-                    "button[type='submit']",
-                    "input[type='submit']",
-                    "button:has-text('Login')",
-                    "button:has-text('LOGIN')",
-                    "button:has-text('Log in')",
-                    "button:has-text('Sign in')",
-                    "button:has-text('Submit')",
-                    "button:has-text('Iniciar')",
-                    "button:has-text('Entrar')",
-                    "[id*='login']",
-                    "[id*='submit']",
-                ]
-                capture_active["value"] = True  # activar antes de intentar cualquier envío
-                clicked = False
-                for sel in submit_selectors:
-                    try:
-                        locator = page.locator(sel)
-                        if locator.count() > 0:
-                            # force=True para ignorar overlays CDK residuales
-                            locator.first.click(timeout=2000, force=True)
-                            page.wait_for_timeout(1500)
-                            clicked = True
-                            break
-                    except Exception:
-                        continue
-
-                # Fallback: Enter en el último campo (funciona en Angular reactive forms)
-                if not clicked and last_input_selector:
-                    try:
-                        page.locator(last_input_selector).first.press("Enter")
-                        page.wait_for_timeout(1500)
-                    except Exception:
-                        pass
-
-                browser.close()
-
-        except Exception:
-            pass
-
-        return discovered
-
-    def fetch_page(self, url: str) -> str:
-        """Descarga el HTML de la URL tras ejecutar el JavaScript con Playwright."""
+        endpoint_info = {"action": url, "body_type": "form"}
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as e:
+            if discover:
+                return ("", endpoint_info)
             raise ImportError(
                 "El modo --spa requiere Playwright. Instálalo con:\n"
                 "  pip install playwright\n"
                 "  playwright install chromium"
             ) from e
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless)
-            context = browser.new_context()
+        html = ""
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=self.headless)
+                context = browser.new_context(user_agent=self.user_agent)
 
-            # Pasar cookies de sesión al contexto de Playwright
-            if self.session.cookies:
-                from urllib.parse import urlparse
-                parsed = urlparse(url)
-                playwright_cookies = [
-                    {
-                        "name": c.name,
-                        "value": c.value,
-                        "domain": parsed.netloc,
-                        "path": "/",
-                    }
-                    for c in self.session.cookies
-                ]
-                if playwright_cookies:
-                    context.add_cookies(playwright_cookies)  # type: ignore[arg-type]
+                if self.session.cookies:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(url)
+                    pw_cookies = [
+                        {"name": c.name, "value": c.value,
+                         "domain": parsed.netloc, "path": "/"}
+                        for c in self.session.cookies
+                    ]
+                    if pw_cookies:
+                        context.add_cookies(pw_cookies)  # type: ignore[arg-type]
 
-            page = context.new_page()
-            page.set_extra_http_headers({
-                "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
-            })
+                page = context.new_page()
 
-            page.goto(url, timeout=self.timeout * 1000)
-            page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)  # type: ignore[arg-type]
+                # Captura de petición POST solo si estamos en modo discover
+                capture_active = {"value": False}
+                if discover:
+                    def on_request(request):
+                        if not capture_active["value"] or request.method != "POST":
+                            return
+                        req_url = request.url
+                        excluded = ["socket.io", "heartbeat", "telemetry", "analytics", "beacon"]
+                        if any(e in req_url for e in excluded):
+                            return
+                        ct = request.headers.get("content-type", "")
+                        auth_kw = ["login", "auth", "signin", "sign-in", "user", "session", "api"]
+                        is_auth = any(kw in req_url.lower() for kw in auth_kw)
+                        if is_auth or endpoint_info["action"] == url:
+                            endpoint_info["action"] = req_url
+                            endpoint_info["body_type"] = "json" if "application/json" in ct else "form"
 
-            # Para SPAs con hash routing (Angular, React Router) el componente
-            # se monta DESPUÉS de networkidle. Esperar a que aparezca un form o input.
+                    page.on("request", on_request)
+
+                page.goto(url, timeout=self.timeout * 1000)
+                page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)  # type: ignore[arg-type]
+
+                # Esperar a que aparezca un formulario/input (SPAs con hash routing)
+                try:
+                    page.wait_for_selector(
+                        "form, input[type='text'], input[type='email'], input[type='password']",
+                        state="visible",
+                        timeout=8000,
+                    )
+                except Exception:
+                    pass
+
+                # HTML siempre se captura — es lo principal
+                html = page.content()
+
+                if discover and fields:
+                    self._submit_with_dummy_data(page, fields, capture_active)
+
+                browser.close()
+        except Exception:
+            pass
+
+        return (html, endpoint_info)
+
+    def _submit_with_dummy_data(self, page, fields: List[FormField], capture_active: dict) -> None:
+        """Rellena el formulario con valores dummy y dispara el submit para que
+        el listener on_request capture la URL real del endpoint."""
+        try:
+            specific_selector = ", ".join(f"input[name='{f.name}']" for f in fields)
+            page.wait_for_selector(specific_selector, state="visible", timeout=8000)
+        except Exception:
+            return
+
+        last_input_selector = None
+        for f in fields:
+            selector = f"input[name='{f.name}']"
+            name_l = f.name.lower()
+            if f.field_type == "email" or any(k in name_l for k in ("email", "mail", "correo")):
+                dummy = "probe@gung12.test"
+            elif f.field_type == "password" or any(k in name_l for k in ("pass", "pwd", "clave")):
+                dummy = "Gung12Probe!"
+            elif f.field_type == "number":
+                dummy = "0"
+            elif f.field_type == "url":
+                dummy = "http://gung12.test"
+            elif f.field_type == "tel":
+                dummy = "000000000"
+            else:
+                dummy = "gung12probe"
             try:
-                page.wait_for_selector(
-                    "form, input[type='text'], input[type='email'], input[type='password']",
-                    state="visible",
-                    timeout=8000,
-                )
+                page.locator(selector).first.type(dummy, timeout=2000)
+                last_input_selector = selector
             except Exception:
-                # Si no aparece en 8s, extraer el HTML de todas formas
                 pass
 
-            html = page.content()
-            browser.close()
+        # Cerrar overlays que bloqueen el envío
+        dismiss_selectors = [
+            "button:has-text('Dismiss')",
+            "button:has-text('Close')",
+            "button:has-text('No thanks')",
+            "button:has-text('Skip')",
+            "[aria-label='Close']",
+            ".cdk-overlay-container button[aria-label*='ismi']",
+        ]
+        for dsel in dismiss_selectors:
+            try:
+                dloc = page.locator(dsel)
+                if dloc.count() > 0 and dloc.first.is_visible():
+                    dloc.first.click(timeout=1500)
+                    page.wait_for_timeout(300)
+            except Exception:
+                pass
 
+        submit_selectors = [
+            "#loginButton",
+            "button[type='submit']",
+            "input[type='submit']",
+            "button:has-text('Login')",
+            "button:has-text('LOGIN')",
+            "button:has-text('Log in')",
+            "button:has-text('Sign in')",
+            "button:has-text('Submit')",
+            "button:has-text('Iniciar')",
+            "button:has-text('Entrar')",
+            "[id*='login']",
+            "[id*='submit']",
+        ]
+        capture_active["value"] = True
+        clicked = False
+        for sel in submit_selectors:
+            try:
+                locator = page.locator(sel)
+                if locator.count() > 0:
+                    locator.first.click(timeout=2000, force=True)
+                    page.wait_for_timeout(1500)
+                    clicked = True
+                    break
+            except Exception:
+                continue
+
+        if not clicked and last_input_selector:
+            try:
+                page.locator(last_input_selector).first.press("Enter")
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
+
+    def fetch_page(self, url: str) -> str:
+        """Compatibilidad: descarga el HTML tras ejecutar el JavaScript."""
+        html, _ = self._render_and_maybe_discover(url, discover=False)
         return html

@@ -1,7 +1,7 @@
 """Módulo de análisis con IA.
 
 Soporta dos proveedores de IA con API gratuita:
-- Gemini (Google) — gemini-2.0-flash-lite con 500 RPD gratis
+- Gemini (Google) — gemini-3.1-flash-lite con tier gratuito
 - Groq — modelos Llama/Mixtral con tier gratuito
 
 La IA se usa para validar y priorizar las detecciones,

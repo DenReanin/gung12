@@ -69,6 +69,9 @@ def perform_login(login_url: str, username: str, password: str,
             f"Campos encontrados: {list(data.keys())}"
         )
 
+    # Snapshot de cookies previas para detectar emisión de sesión nueva
+    cookies_before = {c.name for c in session.cookies}
+
     try:
         if method == "POST":
             resp = session.post(action, data=data, timeout=timeout, allow_redirects=True)
@@ -77,6 +80,49 @@ def perform_login(login_url: str, username: str, password: str,
     except requests.RequestException as e:
         raise RuntimeError(f"Error al enviar credenciales: {e}") from e
 
+    # Señal 1: status 401/403 = login fallido seguro
     if resp.status_code in (401, 403):
         return False
+
+    body_lower = resp.text.lower()
+
+    # Señal 2: patrones típicos de fallo en cuerpo 200 (DVWA, WordPress, Django...)
+    failure_patterns = [
+        "login failed", "incorrect", "invalid credentials", "invalid username",
+        "invalid password", "wrong password", "wrong username", "authentication failed",
+        "credenciales incorrectas", "usuario o contraseña", "contraseña incorrecta",
+        "please try again", "error de autenticación",
+    ]
+    if any(p in body_lower for p in failure_patterns):
+        return False
+
+    # Señal 3: presencia de indicios de éxito (logout, panel, bienvenida)
+    success_patterns = [
+        "logout", "log out", "sign out", "cerrar sesión", "cerrar sesion",
+        "welcome", "bienvenido", "dashboard", "my account", "mi cuenta",
+    ]
+    has_success = any(p in body_lower for p in success_patterns)
+
+    # Señal 4: cookies nuevas emitidas tras el POST (indicador fuerte de sesión)
+    cookies_after = {c.name for c in session.cookies}
+    new_cookies = cookies_after - cookies_before
+    has_new_cookie = len(new_cookies) > 0
+
+    # Señal 5: respuesta JSON con token/sesión (APIs)
+    has_token_json = False
+    ct = resp.headers.get("content-type", "").lower()
+    if "json" in ct:
+        try:
+            import json as _j
+            payload_json = _j.loads(resp.text)
+            if isinstance(payload_json, dict):
+                token_keys = {"token", "access_token", "jwt", "session", "authentication"}
+                has_token_json = any(k.lower() in token_keys for k in payload_json.keys())
+        except (ValueError, TypeError):
+            pass
+
+    # Si no hay ningún indicio de éxito, asumimos fallo
+    if not (has_success or has_new_cookie or has_token_json):
+        return False
+
     return True

@@ -35,10 +35,26 @@ class ReportGenerator:
             # Por defecto JSON
             self.generate_json(result, output_path)
 
+    @staticmethod
+    def _severity_for(confidence: float) -> tuple:
+        """Devuelve (etiqueta, color_fondo, color_texto) según confianza."""
+        if confidence >= 0.85:
+            return ("ALTA", "#fde2e1", "#b30000")
+        if confidence >= 0.65:
+            return ("MEDIA", "#fff4d6", "#8a6d00")
+        return ("BAJA", "#e6f4ff", "#114b8a")
+
     def _build_html(self, result: ScanResult) -> str:
         """Construye el HTML del informe."""
+        # Conteos por severidad para el panel resumen
+        sev_counts = {"ALTA": 0, "MEDIA": 0, "BAJA": 0}
+        for v in result.vulnerabilities:
+            label, _, _ = self._severity_for(v.confidence)
+            sev_counts[label] += 1
+
         vuln_rows = ""
         for v in result.vulnerabilities:
+            sev_label, sev_bg, sev_fg = self._severity_for(v.confidence)
             evidence_escaped = (v.evidence
                                 .replace("&", "&amp;")
                                 .replace("<", "&lt;")
@@ -47,14 +63,18 @@ class ReportGenerator:
                                .replace("&", "&amp;")
                                .replace("<", "&lt;")
                                .replace(">", "&gt;"))
+            artifact_badge = ""
+            if v.reflection_artifact:
+                artifact_badge = ' <span style="background:#eee;color:#666;padding:2px 6px;border-radius:4px;font-size:0.75em">posible artefacto</span>'
             vuln_rows += f"""
-            <tr>
+            <tr style="background:{sev_bg}">
+                <td><span style="background:{sev_fg};color:white;padding:3px 8px;border-radius:4px;font-weight:bold;font-size:0.8em">{sev_label}</span></td>
                 <td><strong>{v.vuln_type.value.upper()}</strong></td>
                 <td><code>{v.field_name}</code></td>
-                <td>{v.description}</td>
+                <td>{v.description}{artifact_badge}</td>
                 <td><code style="font-size:0.8em;word-break:break-all">{payload_escaped}</code></td>
                 <td style="font-size:0.85em">{evidence_escaped[:300]}</td>
-                <td>{v.confidence:.0%}</td>
+                <td style="color:{sev_fg};font-weight:bold">{v.confidence:.0%}</td>
             </tr>"""
 
         no_vulns_msg = ""
@@ -120,13 +140,25 @@ class ReportGenerator:
     <div class="stats">
         <div class="stat">
             <div class="number">{summary['total_vulnerabilities']}</div>
-            <div class="label">VULNERABILIDADES</div>
+            <div class="label">TOTAL</div>
+        </div>
+        <div class="stat" style="border-left:4px solid #b30000">
+            <div class="number" style="color:#b30000">{sev_counts['ALTA']}</div>
+            <div class="label">SEVERIDAD ALTA</div>
+        </div>
+        <div class="stat" style="border-left:4px solid #8a6d00">
+            <div class="number" style="color:#8a6d00">{sev_counts['MEDIA']}</div>
+            <div class="label">SEVERIDAD MEDIA</div>
+        </div>
+        <div class="stat" style="border-left:4px solid #114b8a">
+            <div class="number" style="color:#114b8a">{sev_counts['BAJA']}</div>
+            <div class="label">SEVERIDAD BAJA</div>
         </div>
     </div>
 
     {no_vulns_msg}
 
-    {"<table><thead><tr><th>Tipo</th><th>Campo</th><th>Descripcion</th><th>Payload</th><th>Evidencia</th><th>Confianza</th></tr></thead><tbody>" + vuln_rows + "</tbody></table>" if result.vulnerabilities else ""}
+    {"<table><thead><tr><th>Severidad</th><th>Tipo</th><th>Campo</th><th>Descripcion</th><th>Payload</th><th>Evidencia</th><th>Confianza</th></tr></thead><tbody>" + vuln_rows + "</tbody></table>" if result.vulnerabilities else ""}
 
     {ai_section}
 

@@ -33,9 +33,13 @@ class ScanEngine:
         self.verbose = verbose
         self.use_spa = use_spa
         self.waf_bypass = waf_bypass
-        self.session.headers.update({
-            "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
-        })
+        # User-Agent realista para evitar bloqueos de WAFs que rechazan
+        # cabeceras delatoras tipo "Gung12/1.0 (Security Scanner...)"
+        self.user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
+            "Gecko/20100101 Firefox/120.0"
+        )
+        self.session.headers.update({"User-Agent": self.user_agent})
 
     def scan(self, form: FormData, test_types: List[VulnType],
              full_mode: bool = False, callback=None) -> ScanResult:
@@ -241,71 +245,70 @@ class ScanEngine:
     def _scan_dom_xss(self, form: FormData, payloads: List[str]) -> List[VulnResult]:
         """Detecta DOM XSS usando Playwright: captura alert() disparados por payloads.
 
-        Sólo activo cuando use_spa=True. Usa page.on('dialog') para interceptar
-        alerts JavaScript. Confianza 0.98 — un alert disparado es confirmación directa.
+        Sólo activo cuando use_spa=True. Reutiliza un único browser + context para
+        todos los campos y payloads (un context por campo se descarta al cambiar
+        de campo, para evitar contaminación de estado entre pruebas).
+        Confianza 0.98 — un alert disparado es confirmación directa.
         """
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
             return []
 
-        # Solo payloads que intentan disparar alert() / confirm() / prompt()
         trigger_payloads = [p for p in payloads if "alert" in p.lower() or "confirm" in p.lower()]
         if not trigger_payloads:
             return []
 
         results: List[VulnResult] = []
 
+        # Preparar cookies una sola vez
+        pw_cookies = []
+        if self.session.cookies:
+            from urllib.parse import urlparse
+            parsed = urlparse(form.url)
+            pw_cookies = [
+                {"name": c.name, "value": c.value,
+                 "domain": parsed.netloc, "path": "/"}
+                for c in self.session.cookies
+            ]
+
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
 
                 for field in form.injectable_fields:
+                    # Un contexto por campo, reutilizado para todos los payloads
+                    context = browser.new_context(user_agent=self.user_agent)
+                    if pw_cookies:
+                        context.add_cookies(pw_cookies)  # type: ignore[arg-type]
+                    page = context.new_page()
+
+                    dialog_info = {"fired": False, "message": ""}
+
+                    def _on_dialog(dialog):
+                        dialog_info["fired"] = True
+                        dialog_info["message"] = dialog.message
+                        dialog.dismiss()
+
+                    page.on("dialog", _on_dialog)
+
+                    field_hit = False
                     for payload in trigger_payloads:
-                        dialog_info = {"fired": False, "message": ""}
-
-                        def _on_dialog(dialog, _info=dialog_info):
-                            _info["fired"] = True
-                            _info["message"] = dialog.message
-                            dialog.dismiss()
-
-                        context = browser.new_context()
-                        page = context.new_page()
-                        page.on("dialog", _on_dialog)
-
-                        # Pasar cookies de sesión
-                        if self.session.cookies:
-                            from urllib.parse import urlparse
-                            parsed = urlparse(form.url)
-                            pw_cookies = [
-                                {"name": c.name, "value": c.value,
-                                 "domain": parsed.netloc, "path": "/"}
-                                for c in self.session.cookies
-                            ]
-                            if pw_cookies:
-                                context.add_cookies(pw_cookies)  # type: ignore[arg-type]
+                        dialog_info["fired"] = False
+                        dialog_info["message"] = ""
 
                         try:
                             page.goto(form.url, timeout=self.timeout * 1000)
                             page.wait_for_load_state("networkidle", timeout=self.timeout * 1000)
-
-                            # Rellenar el campo con el payload
                             sel = f"input[name='{field.name}'], textarea[name='{field.name}']"
                             try:
                                 page.locator(sel).first.fill(payload, timeout=3000)
                             except Exception:
-                                context.close()
                                 continue
-
-                            # Enviar el formulario
                             page.keyboard.press("Enter")
                             page.wait_for_timeout(2000)
-
                         except Exception:
-                            context.close()
                             continue
-                        finally:
-                            context.close()
 
                         if dialog_info["fired"]:
                             results.append(VulnResult(
@@ -316,8 +319,13 @@ class ScanEngine:
                                 description=f"DOM XSS: alert() disparado por payload en campo '{field.name}'",
                                 confidence=0.98,
                             ))
-                            # Un resultado por campo es suficiente
+                            field_hit = True
                             break
+
+                    context.close()
+                    if field_hit:
+                        # Pasamos al siguiente campo; ya hay evidencia en este
+                        continue
 
                 browser.close()
 

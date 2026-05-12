@@ -28,9 +28,13 @@ class FormParser:
         if cookies:
             self.session.cookies.update(cookies)
         self.timeout = timeout
-        self.session.headers.update({
-            "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
-        })
+        # User-Agent realista para evitar bloqueos de WAFs que filtran
+        # cabeceras delatoras tipo "Gung12/1.0 (Security Scanner...)"
+        self.user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
+            "Gecko/20100101 Firefox/120.0"
+        )
+        self.session.headers.update({"User-Agent": self.user_agent})
 
     def fetch_page(self, url: str) -> str:
         """Descarga el HTML de la URL."""

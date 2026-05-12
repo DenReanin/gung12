@@ -410,35 +410,67 @@ class ResponseAnalyzer:
 
     def _analyze_logic(self, payload: str, response: str, status: int,
                        resp_time: float, field: str) -> Optional[VulnResult]:
-        """Detecta errores lógicos: inputs inválidos aceptados."""
-        # Si un campo vacío o inválido es aceptado (200 sin error)
+        """Detecta errores lógicos: inputs inválidos aceptados.
+
+        Umbral conservador para evitar falsos positivos en APIs REST con
+        respuestas JSON cortas pero válidas. Solo reporta cuando:
+        - status 200, sin patrones de error
+        - respuesta significativamente larga (>200 bytes)
+        - respuesta comparable en tamaño a la respuesta base (no es error genérico)
+        - aparece al menos un indicio explícito de aceptación
+        """
         invalid_payloads = ["", " ", "-1", "-999999", "aaa@", "<>"]
 
-        if payload in invalid_payloads and status == 200:
-            response_lower = response.lower()
-            # Buscar indicios de aceptación
-            error_patterns = ["error", "invalid", "required", "failed", "wrong", "incorrect"]
-            has_error = any(p in response_lower for p in error_patterns)
+        if payload not in invalid_payloads or status != 200:
+            return None
 
-            if not has_error and len(response) > 50:
-                desc_map = {
-                    "": "campo vacío aceptado",
-                    " ": "campo con solo espacios aceptado",
-                    "-1": "valor negativo aceptado",
-                    "-999999": "valor extremadamente negativo aceptado",
-                    "aaa@": "email inválido aceptado",
-                    "<>": "caracteres especiales aceptados sin sanitizar",
-                }
-                return VulnResult(
-                    vuln_type=VulnType.LOGIC,
-                    field_name=field,
-                    payload=payload if payload else "(vacío)",
-                    evidence=f"Status {status}, sin mensaje de error, {len(response)} bytes",
-                    description=f"Error lógico: {desc_map.get(payload, 'input inválido aceptado')} en '{field}'",
-                    confidence=0.5,
-                )
+        response_lower = response.lower()
 
-        return None
+        # Ampliado: cubrir más variantes en EN/ES
+        error_patterns = [
+            "error", "invalid", "required", "failed", "wrong", "incorrect",
+            "not valid", "must be", "cannot be", "no válido", "obligatorio",
+            "incorrecto", "no permitido", "rechazad",
+        ]
+        if any(p in response_lower for p in error_patterns):
+            return None
+
+        # Umbral subido: <200 bytes es probablemente respuesta JSON corta
+        if len(response) <= 200:
+            return None
+
+        # Comparación con respuesta base: si difiere demasiado, no es aceptación silenciosa
+        if self.base_response and len(self.base_response) > 0:
+            ratio = len(response) / max(len(self.base_response), 1)
+            if ratio < 0.5 or ratio > 2.0:
+                return None
+
+        # Requerir un indicio EXPLÍCITO de aceptación
+        acceptance_patterns = [
+            "success", "accepted", "welcome", "created", "updated",
+            "submitted", "registered", "saved", "ok", "completed",
+            "bienvenido", "guardado", "enviado", "creado",
+        ]
+        has_acceptance = any(p in response_lower for p in acceptance_patterns)
+        if not has_acceptance:
+            return None
+
+        desc_map = {
+            "": "campo vacío aceptado",
+            " ": "campo con solo espacios aceptado",
+            "-1": "valor negativo aceptado",
+            "-999999": "valor extremadamente negativo aceptado",
+            "aaa@": "email inválido aceptado",
+            "<>": "caracteres especiales aceptados sin sanitizar",
+        }
+        return VulnResult(
+            vuln_type=VulnType.LOGIC,
+            field_name=field,
+            payload=payload if payload else "(vacío)",
+            evidence=f"Status {status}, indicio de aceptación detectado, {len(response)} bytes",
+            description=f"Error lógico: {desc_map.get(payload, 'input inválido aceptado')} en '{field}'",
+            confidence=0.55,
+        )
 
     def _analyze_csrf(self, field: str, form: Optional[FormData] = None) -> Optional[VulnResult]:
         """Detecta ausencia de protección CSRF."""

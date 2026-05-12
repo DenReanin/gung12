@@ -99,6 +99,12 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     # Parsear cookies
     cookies = parse_cookies(cookie) if cookie else None
 
+    # User-Agent realista por defecto (Firefox) — evita delatar al scanner como "Gung12/1.0"
+    DEFAULT_UA = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
+        "Gecko/20100101 Firefox/120.0"
+    )
+
     # 0. Autenticación previa automática (--login-url)
     pre_auth_session = None
     if login_url:
@@ -110,9 +116,7 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
             from gung12.auth import perform_login
             import requests as _req
             pre_auth_session = _req.Session()
-            pre_auth_session.headers.update({
-                "User-Agent": "Gung12/1.0 (Security Scanner - Authorized Testing Only)"
-            })
+            pre_auth_session.headers.update({"User-Agent": DEFAULT_UA})
             if cookies:
                 pre_auth_session.cookies.update(cookies)
             success = perform_login(login_url, login_user, login_pass,
