@@ -1,6 +1,10 @@
 # Gung12
 
-DAST (Dynamic Application Security Testing) especializado en la detección de vulnerabilidades en **formularios web**. Cubre 12 categorías del OWASP Top 10 con un enfoque dirigido y pensado para integración en flujos de CI/CD.
+[![Release](https://img.shields.io/github/v/release/DenReanin/gung12)](https://github.com/DenReanin/gung12/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+
+DAST (Dynamic Application Security Testing) especializado en la detección de vulnerabilidades en **formularios web**. Cubre 12 categorías alineadas con el OWASP Top 10 con un enfoque dirigido y pensado para integración en flujos de CI/CD.
 
 ## Características
 
