@@ -29,3 +29,7 @@ ssti_lab/
 Thumbs.db
 .env
 .env.local
+
+# Logs (entorno de pruebas)
+*.log
+flasklab.log

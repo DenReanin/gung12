@@ -17,7 +17,8 @@ from gung12.analyzer import ResponseAnalyzer
 # Tipos que indican página con reflexión total (alta confianza)
 _REFLECTION_INDICATORS = {VulnType.XSS, VulnType.HTMLI}
 # Tipos susceptibles de falso positivo cuando hay reflexión total
-_REFLECTION_SUSCEPTIBLE = {VulnType.SQLI, VulnType.CMDI, VulnType.NOSQL, VulnType.SSTI}
+_REFLECTION_SUSCEPTIBLE = {VulnType.SQLI, VulnType.CMDI, VulnType.NOSQL, VulnType.SSTI,
+                          VulnType.XXE, VulnType.OPEN_REDIRECT}
 
 
 class ScanEngine:

@@ -5,5 +5,5 @@ Herramienta CLI que analiza formularios web específicos mediante inyección de 
 para detectar 12 tipos de vulnerabilidades.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __author__ = "Den Reanin Gerasimov"
