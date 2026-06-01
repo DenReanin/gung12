@@ -93,6 +93,7 @@ class ScanResult:
     scan_mode: str = "quick"
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     ai_analysis: Optional[str] = None
+    blocked: bool = False  # True si se detectó un bloqueo de WAF/anti-bot (resultados no fiables)
 
     @property
     def has_vulnerabilities(self) -> bool:
@@ -116,6 +117,7 @@ class ScanResult:
             "summary": {
                 "total_vulnerabilities": len(self.vulnerabilities),
             },
+            "blocked": self.blocked,
             "vulnerabilities": [
                 {
                     "type": v.vuln_type.value,

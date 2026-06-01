@@ -4,6 +4,7 @@ Genera informes en formato JSON y HTML con los resultados del escaneo.
 """
 
 import json
+import re
 import html as _html
 from datetime import datetime
 from typing import Optional
@@ -59,11 +60,22 @@ class ReportGenerator:
         sorted_vulns = sorted(vulns, key=lambda v: sev_order[self._severity_for(v.confidence)])
 
         # Generación de cards de hallazgo
-        cards = "\n".join(self._render_card(v) for v in sorted_vulns)
+        cards = "\n".join(self._render_card(v, result.form) for v in sorted_vulns)
+
+        # Aviso de bloqueo de WAF/anti-bot
+        blocked_notice = ""
+        if getattr(result, "blocked", False):
+            blocked_notice = (
+                '<div class="blocked">'
+                '<p><strong>Escaneo detenido.</strong> La respuesta parece un bloqueo de '
+                'WAF o anti-bot (por ejemplo, un desafío de Cloudflare). Los resultados no '
+                'serían fiables, por lo que no se reporta ningún hallazgo.</p>'
+                '</div>'
+            )
 
         # Mensaje cuando no hay hallazgos
         empty_state = ""
-        if not vulns:
+        if not vulns and not blocked_notice:
             empty_state = (
                 '<div class="empty">'
                 '<p>Sin hallazgos. El formulario no presenta indicios de vulnerabilidad '
@@ -74,7 +86,7 @@ class ReportGenerator:
         # Sección de análisis IA (opcional)
         ai_section = ""
         if result.ai_analysis:
-            ai_html = self._escape(result.ai_analysis).replace("\n", "<br>")
+            ai_html = self._markdown_to_html(result.ai_analysis)
             ai_section = (
                 '<section class="ai">'
                 '<h2>Análisis con IA</h2>'
@@ -131,6 +143,8 @@ class ReportGenerator:
     <p class="summary-line">{summary_line}</p>
   </section>
 
+  {blocked_notice}
+
   {empty_state}
 
   <section class="findings">
@@ -156,7 +170,65 @@ class ReportGenerator:
         """Escape HTML seguro."""
         return _html.escape(text or "", quote=False)
 
-    def _render_card(self, v) -> str:
+    @staticmethod
+    def _markdown_to_html(text: str) -> str:
+        """Convierte el Markdown que devuelve la IA en HTML legible.
+
+        Soporta el subconjunto que usan los modelos: encabezados (#),
+        negrita (**), cursiva (*), código en línea (`) y listas (-, *, 1.).
+        El texto se escapa primero para evitar inyección de HTML.
+        """
+        esc = _html.escape(text or "", quote=False)
+
+        def inline(s: str) -> str:
+            s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+            s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+            s = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"<em>\1</em>", s)
+            return s
+
+        parts: list[str] = []
+        list_type: Optional[str] = None
+
+        def close_list() -> None:
+            nonlocal list_type
+            if list_type:
+                parts.append(f"</{list_type}>")
+                list_type = None
+
+        for raw in esc.split("\n"):
+            line = raw.strip()
+            if not line:
+                close_list()
+                continue
+            m = re.match(r"^(#{1,6})\s+(.*)$", line)
+            if m:
+                close_list()
+                level = 3 if len(m.group(1)) <= 3 else 4
+                parts.append(f"<h{level}>{inline(m.group(2))}</h{level}>")
+                continue
+            m = re.match(r"^\d+\.\s+(.*)$", line)
+            if m:
+                if list_type != "ol":
+                    close_list()
+                    parts.append("<ol>")
+                    list_type = "ol"
+                parts.append(f"<li>{inline(m.group(1))}</li>")
+                continue
+            m = re.match(r"^[*\-]\s+(.*)$", line)
+            if m:
+                if list_type != "ul":
+                    close_list()
+                    parts.append("<ul>")
+                    list_type = "ul"
+                parts.append(f"<li>{inline(m.group(1))}</li>")
+                continue
+            close_list()
+            parts.append(f"<p>{inline(line)}</p>")
+
+        close_list()
+        return "\n".join(parts)
+
+    def _render_card(self, v, form=None) -> str:
         """Renderiza una card de hallazgo."""
         sev = self._severity_for(v.confidence)
         artifact = '<span class="tag tag-artifact" title="Posible artefacto de reflexión total — verificar manualmente">posible artefacto</span>' if v.reflection_artifact else ""
@@ -171,6 +243,21 @@ class ReportGenerator:
                 '<details class="block">'
                 '<summary>Payload</summary>'
                 f'<pre><code>{payload_esc}</code></pre>'
+                '</details>'
+            )
+
+        # Bloque de reproducibilidad: método, URL de destino y campo inyectado.
+        request_block = ""
+        if form is not None and v.payload != "N/A - análisis estático":
+            req_lines = (
+                f"{self._escape(form.method)} {self._escape(form.action)}\n"
+                f"Campo inyectado: {self._escape(v.field_name)}\n"
+                f"Tipo de cuerpo: {self._escape(getattr(form, 'body_type', 'form'))}"
+            )
+            request_block = (
+                '<details class="block">'
+                '<summary>Petición</summary>'
+                f'<pre><code>{req_lines}</code></pre>'
                 '</details>'
             )
 
@@ -193,6 +280,7 @@ class ReportGenerator:
             f'  </div>'
             f'  <p class="vdesc">{description_esc}</p>'
             f'  {payload_block}'
+            f'  {request_block}'
             f'  {evidence_block}'
             f'</article>'
         )
@@ -434,6 +522,42 @@ html, body {
   font-size: 0.9rem;
   color: var(--c-text);
   line-height: 1.65;
+}
+.ai-body h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 1.1rem 0 0.4rem;
+  color: var(--c-text);
+}
+.ai-body h4 {
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin: 0.85rem 0 0.3rem;
+  color: var(--c-text-muted);
+}
+.ai-body p { margin: 0.5rem 0; }
+.ai-body ul, .ai-body ol {
+  margin: 0.4rem 0 0.7rem 1.3rem;
+  padding: 0;
+}
+.ai-body li { margin: 0.28rem 0; }
+.ai-body strong { font-weight: 600; }
+.ai-body code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  padding: 0.08em 0.34em;
+}
+.blocked {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  background: var(--c-media-soft);
+  border: 1px solid var(--c-media);
+  border-left: 4px solid var(--c-media);
+  border-radius: var(--radius);
+  color: var(--c-text);
 }
 
 /* ---- Footer ---- */

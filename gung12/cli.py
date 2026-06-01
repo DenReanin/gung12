@@ -206,6 +206,9 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
 
     if not forms:
         err("[ERROR] No se encontraron formularios en la URL")
+        if not use_spa:
+            warn("[!] Si el sitio usa JavaScript o un framework SPA (Angular, React, Vue), "
+                 "prueba a añadir la opción --spa para renderizarlo con Playwright.")
         sys.exit(2)
 
     if form_index >= len(forms):
@@ -237,12 +240,17 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
                         use_spa=use_spa, waf_bypass=waf_bypass)
 
     def progress_callback(msg):
-        # Los detecciones "[!] ..." emitidos por el engine en tiempo real
-        # se suprimen porque el resumen final ya las agrupa por severidad.
-        # El modo verbose imprime el progreso por tipo ("Probando ...").
+        # Las detecciones "[!] ..." emitidas por el engine en tiempo real se
+        # suprimen porque el resumen final ya las agrupa por severidad.
         if "[!]" in msg:
             return
-        if verbose and not quiet:
+        # Los avisos de bloqueo se muestran siempre y de forma destacada.
+        if "[BLOQUEO]" in msg:
+            click.echo(click.style(msg.strip(), fg="red", bold=True))
+            return
+        # El progreso por tipo se muestra en modo normal y verbose (no en quiet),
+        # para que en escaneos largos se vea que la herramienta sigue trabajando.
+        if not quiet:
             click.echo(click.style(f"    {msg.strip()}", fg="white", dim=True))
 
     t0 = time.time()
@@ -253,6 +261,15 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
         callback=progress_callback,
     )
     elapsed = time.time() - t0
+
+    # ---- 3.b Bloqueo de WAF/anti-bot detectado ----
+    if scan_result.blocked:
+        click.echo()
+        warn("[!] Escaneo detenido: la respuesta parece un bloqueo de WAF o anti-bot "
+             "(por ejemplo, un desafío de Cloudflare).")
+        warn("    Los resultados no serían fiables, así que no se reporta ningún hallazgo. "
+             "Revisa el acceso al objetivo o prueba con otro entorno.")
+        sys.exit(2)
 
     # ---- 4. Análisis IA (opcional) ----
     if use_ai and scan_result.vulnerabilities:
@@ -293,6 +310,9 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
                 if v.payload and v.payload != "N/A - análisis estático":
                     payload_short = v.payload[:80] + ("..." if len(v.payload) > 80 else "")
                     click.echo(click.style(f"        Payload: {payload_short}", fg="white", dim=True))
+                click.echo(click.style(
+                    f"        Petición: {form.method} {form.action}  ·  campo: {v.field_name}",
+                    fg="white", dim=True))
                 click.echo()
 
         # Línea de conteo por severidad

@@ -20,6 +20,18 @@ _REFLECTION_INDICATORS = {VulnType.XSS, VulnType.HTMLI}
 _REFLECTION_SUSCEPTIBLE = {VulnType.SQLI, VulnType.CMDI, VulnType.NOSQL, VulnType.SSTI,
                           VulnType.XXE, VulnType.OPEN_REDIRECT}
 
+# Marcadores de páginas de bloqueo/desafío de WAF o anti-bot (Cloudflare, Akamai,
+# Imperva...). Si la respuesta base coincide, los resultados no son fiables y el
+# escaneo se detiene para no generar falsos positivos.
+_BLOCK_MARKERS = (
+    "just a moment", "checking your browser", "cf-mitigated", "_cf_chl",
+    "/cdn-cgi/challenge", "attention required", "cloudflare to restrict",
+    "access denied", "you have been blocked", "request unsuccessful. incapsula",
+    "captcha-delivery", "enable javascript and cookies to continue",
+    "ddos protection by", "ray id:",
+)
+_BLOCK_STATUS = {403, 429, 503}
+
 
 class ScanEngine:
     """Motor de pruebas que lanza payloads contra formularios."""
@@ -49,6 +61,20 @@ class ScanEngine:
         # Obtener respuesta base
         base_response, base_status, base_time = self._send_base_request(form)
 
+        # Detección de bloqueo WAF/anti-bot: si la respuesta base es una página de
+        # desafío o bloqueo, los resultados serían falsos positivos. Se aborta.
+        if self._looks_like_block(base_response, base_status):
+            if callback:
+                callback(f"[BLOQUEO] La respuesta parece un bloqueo de WAF/anti-bot "
+                         f"(estado {base_status}). Resultados no fiables; escaneo detenido.")
+            return ScanResult(
+                url=form.url,
+                form=form,
+                vulnerabilities=[],
+                scan_mode="full" if full_mode else "quick",
+                blocked=True,
+            )
+
         analyzer = ResponseAnalyzer(
             base_response=base_response,
             base_status=base_status,
@@ -56,10 +82,13 @@ class ScanEngine:
         )
 
         all_vulns: List[VulnResult] = []
+        # Campos cuyo input se refleja literal en la respuesta (señal de reflexión).
+        reflective_fields: set = set()
 
-        for vuln_type in test_types:
+        total_types = len(test_types)
+        for idx, vuln_type in enumerate(test_types, 1):
             if callback:
-                callback(f"Probando {vuln_type.value}...")
+                callback(f"[{idx}/{total_types}] Probando {vuln_type.value}...")
 
             # CSRF es análisis estático (no necesita payloads)
             if vuln_type == VulnType.CSRF:
@@ -133,6 +162,14 @@ class ScanEngine:
                             form, field.name, actual_payload
                         )
 
+                        # Detección de reflexión: si el payload se devuelve literal
+                        # en la respuesta (y no estaba en la base), el campo refleja
+                        # el input, lo que puede causar falsos positivos.
+                        if (len(actual_payload) >= 4
+                                and actual_payload in response_text
+                                and actual_payload not in base_response):
+                            reflective_fields.add(field.name)
+
                         result = analyzer.analyze(
                             vuln_type=vuln_type,
                             payload=actual_payload,
@@ -165,8 +202,9 @@ class ScanEngine:
                         callback(f"  [!] DOM XSS detectado en '{result.field_name}': {result.payload[:60]}")
 
         # Filtro de reflexión total: si XSS/HTMLI alta confianza en un campo,
-        # marcar SQLi/CMDi/NoSQL del mismo campo como posible artefacto
-        self._apply_reflection_filter(all_vulns)
+        # o si el campo refleja el input literal, marcar SQLi/CMDi/NoSQL/SSTI/XXE/
+        # Open Redirect del mismo campo como posible artefacto de reflexión.
+        self._apply_reflection_filter(all_vulns, reflective_fields)
 
         return ScanResult(
             url=form.url,
@@ -174,6 +212,14 @@ class ScanEngine:
             vulnerabilities=all_vulns,
             scan_mode="full" if full_mode else "quick",
         )
+
+    @staticmethod
+    def _looks_like_block(text: str, status: int) -> bool:
+        """Detecta si la respuesta es una página de bloqueo/desafío de WAF o anti-bot."""
+        if status in _BLOCK_STATUS:
+            return True
+        low = (text or "").lower()
+        return any(marker in low for marker in _BLOCK_MARKERS)
 
     def _send_base_request(self, form: FormData) -> tuple:
         """Envía una petición base con datos normales."""
@@ -229,14 +275,19 @@ class ScanEngine:
         except requests.RequestException:
             return "", 0, 0.0
 
-    def _apply_reflection_filter(self, vulns: List[VulnResult]) -> None:
-        """Post-proceso: si XSS/HTMLI con confianza ≥0.80 en un campo,
-        reduce la confianza de SQLi/CMDi/NoSQL/SSTI en ese mismo campo
-        y los marca como posibles artefactos de reflexión total."""
+    def _apply_reflection_filter(self, vulns: List[VulnResult],
+                                 reflective_fields: Optional[set] = None) -> None:
+        """Post-proceso: marca como posible artefacto de reflexión los hallazgos
+        de tipos susceptibles (SQLi, CMDi, NoSQL, SSTI, XXE, Open Redirect) en
+        campos donde hay reflexión total. Un campo se considera reflejante si:
+        - presenta XSS/HTMLI con confianza ≥0.80, o
+        - su input se devolvió literal en la respuesta (reflective_fields)."""
         reflected_fields = {
             v.field_name for v in vulns
             if v.vuln_type in _REFLECTION_INDICATORS and v.confidence >= 0.80
         }
+        if reflective_fields:
+            reflected_fields |= reflective_fields
         for v in vulns:
             if v.field_name in reflected_fields and v.vuln_type in _REFLECTION_SUSCEPTIBLE:
                 v.confidence = min(v.confidence, 0.55)
