@@ -1,8 +1,3 @@
-"""Módulo 1: Parser de formularios HTML.
-
-Accede a una URL, parsea el HTML y extrae la estructura del formulario:
-campos, método, action, tokens CSRF, etc.
-"""
 
 import requests
 from bs4 import BeautifulSoup
@@ -12,7 +7,6 @@ from typing import List, Optional
 from gung12.models import FormData, FormField
 
 
-# Nombres comunes de campos CSRF
 CSRF_FIELD_NAMES = {
     "csrf_token", "_token", "csrfmiddlewaretoken", "authenticity_token",
     "__requestverificationtoken", "csrf", "token", "user_token",
@@ -21,15 +15,12 @@ CSRF_FIELD_NAMES = {
 
 
 class FormParser:
-    """Parsea formularios HTML de una URL específica."""
 
     def __init__(self, cookies: Optional[dict] = None, timeout: int = 10):
         self.session = requests.Session()
         if cookies:
             self.session.cookies.update(cookies)
         self.timeout = timeout
-        # User-Agent realista para evitar bloqueos de WAFs que filtran
-        # cabeceras delatoras tipo "Gung12/1.0 (Security Scanner...)"
         self.user_agent = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
             "Gecko/20100101 Firefox/120.0"
@@ -37,13 +28,11 @@ class FormParser:
         self.session.headers.update({"User-Agent": self.user_agent})
 
     def fetch_page(self, url: str) -> str:
-        """Descarga el HTML de la URL."""
         response = self.session.get(url, timeout=self.timeout, allow_redirects=True)
         response.raise_for_status()
         return response.text
 
     def parse_forms(self, url: str) -> List[FormData]:
-        """Extrae todos los formularios de una URL."""
         html = self.fetch_page(url)
         soup = BeautifulSoup(html, "html.parser")
         forms = soup.find_all("form")
@@ -59,17 +48,13 @@ class FormParser:
         return result
 
     def _parse_single_form(self, form_tag, base_url: str) -> FormData:
-        """Parsea un solo elemento <form>."""
-        # Extraer método y action
         method = form_tag.get("method", "GET").upper()
         action = form_tag.get("action", "")
         action_url = urljoin(base_url, action) if action else base_url
 
-        # Extraer campos
         fields = []
         csrf_field = None
 
-        # Inputs
         for input_tag in form_tag.find_all("input"):
             field = self._parse_input(input_tag)
             if field:
@@ -77,7 +62,6 @@ class FormParser:
                 if field.name.lower() in CSRF_FIELD_NAMES:
                     csrf_field = field
 
-        # Textareas
         for textarea in form_tag.find_all("textarea"):
             name = textarea.get("name")
             if name:
@@ -87,7 +71,6 @@ class FormParser:
                     value=textarea.string or "",
                 ))
 
-        # Selects
         for select in form_tag.find_all("select"):
             name = select.get("name")
             if name:
@@ -119,7 +102,6 @@ class FormParser:
         )
 
     def _parse_input(self, input_tag) -> Optional[FormField]:
-        """Parsea un elemento <input>."""
         name = input_tag.get("name")
         if not name:
             return None
@@ -136,7 +118,6 @@ class FormParser:
         )
 
     def test_form(self, url: str) -> dict:
-        """Verifica que el formulario es accesible y parseable (opción --test)."""
         try:
             forms = self.parse_forms(url)
             if not forms:

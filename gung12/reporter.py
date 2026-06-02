@@ -1,7 +1,3 @@
-"""Módulo 4: Generador de informes.
-
-Genera informes en formato JSON y HTML con los resultados del escaneo.
-"""
 
 import json
 import re
@@ -14,22 +10,18 @@ from gung12.models import ScanResult
 
 
 class ReportGenerator:
-    """Genera informes de resultados de escaneo."""
 
     def generate_json(self, result: ScanResult, output_path: str):
-        """Genera informe en formato JSON."""
         data = result.to_dict()
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
     def generate_html(self, result: ScanResult, output_path: str):
-        """Genera informe en formato HTML."""
         html = self._build_html(result)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
 
     def generate(self, result: ScanResult, output_path: str):
-        """Auto-detecta formato por extensión y genera el informe."""
         if output_path.endswith(".json"):
             self.generate_json(result, output_path)
         elif output_path.endswith(".html") or output_path.endswith(".htm"):
@@ -39,7 +31,6 @@ class ReportGenerator:
 
     @staticmethod
     def _severity_for(confidence: float) -> str:
-        """Devuelve la etiqueta de severidad según la puntuación de confianza."""
         if confidence >= 0.85:
             return "alta"
         if confidence >= 0.65:
@@ -47,22 +38,17 @@ class ReportGenerator:
         return "baja"
 
     def _build_html(self, result: ScanResult) -> str:
-        """Construye el HTML del informe."""
         vulns = result.vulnerabilities
 
-        # Conteo por severidad
         sev_counts = {"alta": 0, "media": 0, "baja": 0}
         for v in vulns:
             sev_counts[self._severity_for(v.confidence)] += 1
 
-        # Ordenar los hallazgos por severidad (alta → media → baja)
         sev_order = {"alta": 0, "media": 1, "baja": 2}
         sorted_vulns = sorted(vulns, key=lambda v: sev_order[self._severity_for(v.confidence)])
 
-        # Generación de cards de hallazgo
         cards = "\n".join(self._render_card(v, result.form) for v in sorted_vulns)
 
-        # Aviso de bloqueo de WAF/anti-bot
         blocked_notice = ""
         if getattr(result, "blocked", False):
             blocked_notice = (
@@ -73,7 +59,6 @@ class ReportGenerator:
                 '</div>'
             )
 
-        # Mensaje cuando no hay hallazgos
         empty_state = ""
         if not vulns and not blocked_notice:
             empty_state = (
@@ -83,7 +68,6 @@ class ReportGenerator:
                 '</div>'
             )
 
-        # Sección de análisis IA (opcional)
         ai_section = ""
         if result.ai_analysis:
             ai_html = self._markdown_to_html(result.ai_analysis)
@@ -94,13 +78,11 @@ class ReportGenerator:
                 '</section>'
             )
 
-        # Metadatos
         ts = result.timestamp.replace("T", " ").split(".")[0]
         objective = f"{result.form.method} {self._escape(result.form.action)}"
         fields_str = ", ".join(f.name for f in result.form.injectable_fields) or "—"
         total = len(vulns)
 
-        # Línea resumen: "X hallazgos · N alta · N media · N baja"
         if total == 0:
             summary_line = "Sin hallazgos"
         else:
@@ -161,23 +143,13 @@ class ReportGenerator:
 </body>
 </html>"""
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _escape(text: str) -> str:
-        """Escape HTML seguro."""
         return _html.escape(text or "", quote=False)
 
     @staticmethod
     def _markdown_to_html(text: str) -> str:
-        """Convierte el Markdown que devuelve la IA en HTML legible.
-
-        Soporta el subconjunto que usan los modelos: encabezados (#),
-        negrita (**), cursiva (*), código en línea (`) y listas (-, *, 1.).
-        El texto se escapa primero para evitar inyección de HTML.
-        """
         esc = _html.escape(text or "", quote=False)
 
         def inline(s: str) -> str:
@@ -229,14 +201,12 @@ class ReportGenerator:
         return "\n".join(parts)
 
     def _render_card(self, v, form=None) -> str:
-        """Renderiza una card de hallazgo."""
         sev = self._severity_for(v.confidence)
         artifact = '<span class="tag tag-artifact" title="Posible artefacto de reflexión total — verificar manualmente">posible artefacto</span>' if v.reflection_artifact else ""
         payload_esc = self._escape(v.payload) if v.payload else ""
         evidence_esc = self._escape(v.evidence) if v.evidence else ""
         description_esc = self._escape(v.description)
 
-        # Bloques colapsables solo si hay contenido
         payload_block = ""
         if payload_esc and v.payload != "N/A - análisis estático":
             payload_block = (
@@ -246,7 +216,6 @@ class ReportGenerator:
                 '</details>'
             )
 
-        # Bloque de reproducibilidad: método, URL de destino y campo inyectado.
         request_block = ""
         if form is not None and v.payload != "N/A - análisis estático":
             req_lines = (

@@ -1,4 +1,3 @@
-"""Payloads para detección de Command Injection / OS Command Injection."""
 
 QUICK_PAYLOADS = [
     "; whoami",
@@ -41,7 +40,6 @@ FULL_PAYLOADS = [
     "; dir",
 ]
 
-# Patrones que indican command injection exitosa
 DETECTION_PATTERNS = [
     "uid=",
     "gid=",
@@ -54,12 +52,12 @@ DETECTION_PATTERNS = [
     "VULN_TEST_12345",
     "linux",
     "darwin",
-    "total ",       # salida de ls -la
-    "drwx",         # permisos de directorio
-    "-rw-",         # permisos de archivo
-    "127.0.0.1",    # ping
-    "bytes from",   # ping
-    "ttl=",         # ping
-    "password",     # /etc/passwd
-    "nobody",       # /etc/passwd
+    "total ",
+    "drwx",
+    "-rw-",
+    "127.0.0.1",
+    "bytes from",
+    "ttl=",
+    "password",
+    "nobody",
 ]

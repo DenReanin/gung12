@@ -1,4 +1,3 @@
-"""Payloads para detección de XPath Injection."""
 
 QUICK_PAYLOADS = [
     "' or '1'='1",
@@ -24,7 +23,6 @@ FULL_PAYLOADS = [
     "' or //element or 'a'='b",
 ]
 
-# Patrones que indican XPath Injection en la respuesta
 DETECTION_PATTERNS = [
     "invalid predicate",
     r"syntax error.*xpath",

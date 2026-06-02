@@ -1,4 +1,3 @@
-"""Payloads para detección de Server-Side Template Injection (SSTI)."""
 
 QUICK_PAYLOADS = [
     "{{7*7}}",
@@ -36,11 +35,10 @@ FULL_PAYLOADS = [
     "<%= 7*7*7 %>",
 ]
 
-# Patrones que indican SSTI
 DETECTION_PATTERNS = [
-    "49",       # 7*7
-    "343",      # 7*7*7
-    "7777777",  # 7*'7' en Jinja2
+    "49",
+    "343",
+    "7777777",
     "class 'str'",
     "config",
     "self",

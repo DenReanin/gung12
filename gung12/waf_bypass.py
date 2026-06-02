@@ -1,8 +1,3 @@
-"""Técnicas de evasión de WAF para ampliar la cobertura en entornos protegidos.
-
-Activado con el flag --waf-bypass. Genera variantes encoded de los payloads
-para evadir filtros basados en firmas estáticas (ModSecurity, Cloudflare WAF).
-"""
 
 import urllib.parse
 
@@ -16,7 +11,6 @@ def _double_url_encode(payload: str) -> str:
 
 
 def _case_variation(payload: str) -> str:
-    """Alterna mayúsculas/minúsculas para evadir filtros case-sensitive."""
     result = []
     for i, c in enumerate(payload):
         result.append(c.upper() if c.isalpha() and i % 2 == 0 else c.lower() if c.isalpha() else c)
@@ -24,7 +18,6 @@ def _case_variation(payload: str) -> str:
 
 
 def _space_to_comment(payload: str) -> str:
-    """Reemplaza espacios por /**/ para evadir filtros SQL."""
     return payload.replace(' ', '/**/')
 
 
@@ -33,7 +26,6 @@ def _null_byte(payload: str) -> str:
 
 
 def _tag_case_xss(payload: str) -> str:
-    """Variantes de etiquetas script/img con capitalización mixta."""
     return (payload
             .replace('<script>', '<ScRiPt>')
             .replace('</script>', '</ScRiPt>')
@@ -42,7 +34,6 @@ def _tag_case_xss(payload: str) -> str:
 
 
 def generate_bypass_variants(payload: str, vuln_type_value: str) -> list:
-    """Genera variantes del payload con técnicas de evasión WAF según el tipo."""
     variants = []
 
     if vuln_type_value in ('xss', 'htmli'):
@@ -63,5 +54,4 @@ def generate_bypass_variants(payload: str, vuln_type_value: str) -> list:
     else:
         variants.append(_url_encode(payload))
 
-    # Eliminar duplicados y el payload original
     return list(dict.fromkeys(v for v in variants if v != payload))

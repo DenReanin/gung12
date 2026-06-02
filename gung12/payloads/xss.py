@@ -1,4 +1,3 @@
-"""Payloads para detección de Cross-Site Scripting (XSS) reflejado."""
 
 QUICK_PAYLOADS = [
     '<script>alert("XSS")</script>',
@@ -36,7 +35,6 @@ FULL_PAYLOADS = [
     '<style>@import "javascript:alert(\'XSS\')";</style>',
 ]
 
-# Patrones que indican XSS reflejado en la respuesta
 DETECTION_PATTERNS = [
     '<script>alert("XSS")</script>',
     '<script>alert(\'XSS\')</script>',

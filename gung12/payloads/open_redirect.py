@@ -1,4 +1,3 @@
-"""Payloads para detección de Open Redirect."""
 
 QUICK_PAYLOADS = [
     "https://evil.com",
@@ -24,15 +23,13 @@ FULL_PAYLOADS = [
     "https://trusted.com.evil.com",
     "https://evil.com#trusted.com",
     "https://evil.com?trusted.com",
-    "%68%74%74%70%3a%2f%2fevil.com",  # URL encoded http://evil.com
+    "%68%74%74%70%3a%2f%2fevil.com",
     "https://evil%E3%80%82com",
     "/redirect?url=https://evil.com",
     "//evil%00.com",
     "https://evil.com/trusted.com",
 ]
 
-# Patrones que indican open redirect
-# La detección principal es verificar si hay redirección a host externo
 DETECTION_PATTERNS = [
     "evil.com",
 ]

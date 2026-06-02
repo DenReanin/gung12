@@ -1,4 +1,3 @@
-"""Interfaz de línea de comandos (CLI) para Gung12."""
 
 import os
 import sys
@@ -19,7 +18,6 @@ VULN_TYPE_MAP = {v.value: v for v in VulnType}
 
 
 def parse_cookies(cookie_string: str) -> dict:
-    """Parsea string de cookies 'key=val;key2=val2' a dict."""
     cookies = {}
     if not cookie_string:
         return cookies
@@ -32,7 +30,6 @@ def parse_cookies(cookie_string: str) -> dict:
 
 
 def parse_test_types(test_string: str) -> list:
-    """Parsea string de tipos 'xss,sqli,ssti' a lista de VulnType."""
     if not test_string or test_string.lower() == "all":
         return ALL_VULN_TYPES
 
@@ -47,7 +44,6 @@ def parse_test_types(test_string: str) -> list:
 
 
 def severity_of(confidence: float) -> tuple:
-    """Mapea confianza numérica a (etiqueta, color) para mostrar en CLI."""
     if confidence >= 0.85:
         return ("ALTA", "red")
     if confidence >= 0.65:
@@ -55,7 +51,6 @@ def severity_of(confidence: float) -> tuple:
     return ("BAJA", "blue")
 
 
-# Banner ASCII al estilo clásico (sqlmap / nmap / nikto)
 BANNER = r"""
    _____                  _ ___
   / ____|                | |__ \
@@ -113,18 +108,7 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
          ai_key: Optional[str], waf_bypass: bool,
          login_url: Optional[str], login_user: Optional[str], login_pass: Optional[str],
          quiet: bool, verbose: bool, no_banner: bool):
-    """Gung12 - Detector de vulnerabilidades en formularios web.
-
-    Analiza un formulario web específico mediante inyección de payloads
-    para detectar 12 tipos de vulnerabilidades.
-
-    Ejemplo: python -m gung12 -u "http://localhost/vuln/xss/" -T xss,sqli -o report.html
-
-    Uso autorizado únicamente en entornos de prueba o sistemas propios.
-    """
-    # ---- Configuración del nivel de detalle ----
     def info(msg, **style):
-        """Mensaje informativo: oculto en modo --quiet."""
         if not quiet:
             click.echo(click.style(msg, **style) if style else msg)
 
@@ -137,7 +121,6 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     def ok(msg):
         info(msg, fg="green")
 
-    # ---- Banner ----
     if not no_banner and not quiet:
         click.echo(click.style(BANNER.format(version=__version__), fg="cyan"))
         click.echo(click.style("    DAST para formularios web - uso autorizado únicamente",
@@ -147,13 +130,11 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
 
     cookies = parse_cookies(cookie) if cookie else None
 
-    # User-Agent realista por defecto (Firefox) — evita delatar al scanner
     DEFAULT_UA = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
         "Gecko/20100101 Firefox/120.0"
     )
 
-    # ---- 0. Autenticación previa (--login-url) ----
     if login_url:
         if not login_user or not login_pass:
             err("[ERROR] --login-url requiere también --login-user y --login-pass")
@@ -185,7 +166,6 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     if use_spa:
         info("[*] Modo SPA: renderizando con Playwright")
 
-    # ---- 1. Parsing del formulario ----
     info(f"[*] Objetivo: {url}")
     if use_spa:
         from gung12.spa_parser import SPAFormParser
@@ -232,27 +212,20 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
         warn("[!] No hay campos inyectables - escaneo abortado")
         sys.exit(0)
 
-    # ---- 2. Tipos de prueba ----
     test_types = parse_test_types(tests)
     mode = "full" if full else "quick"
     info(f"[*] Modo {mode} · {len(test_types)} tipo(s) · {len(form.injectable_fields)} campo(s)")
     info("")
 
-    # ---- 3. Ejecución del escaneo ----
     engine = ScanEngine(cookies=cookies, timeout=timeout, verbose=verbose,
                         use_spa=use_spa, waf_bypass=waf_bypass)
 
     def progress_callback(msg):
-        # Las detecciones "[!] ..." emitidas por el engine en tiempo real se
-        # suprimen porque el resumen final ya las agrupa por severidad.
         if "[!]" in msg:
             return
-        # Los avisos de bloqueo se muestran siempre y de forma destacada.
         if "[BLOQUEO]" in msg:
             click.echo(click.style(msg.strip(), fg="red", bold=True))
             return
-        # El progreso por tipo se muestra en modo normal y verbose (no en quiet),
-        # para que en escaneos largos se vea que la herramienta sigue trabajando.
         if not quiet:
             click.echo(click.style(f"    {msg.strip()}", fg="white", dim=True))
 
@@ -265,7 +238,6 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     )
     elapsed = time.time() - t0
 
-    # ---- 3.b Bloqueo de WAF/anti-bot detectado ----
     if scan_result.blocked:
         click.echo()
         warn("[!] Escaneo detenido: la respuesta parece un bloqueo de WAF o anti-bot "
@@ -274,7 +246,6 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
              "Revisa el acceso al objetivo o prueba con otro entorno.")
         sys.exit(2)
 
-    # ---- 4. Análisis IA (opcional) ----
     if use_ai and scan_result.vulnerabilities:
         info(f"\n[*] Análisis IA ({ai_provider})...")
         try:
@@ -286,13 +257,11 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
         except Exception as e:
             warn(f"[!] Error en análisis IA: {e}")
 
-    # ---- 5. Resumen de hallazgos ----
     vulns = scan_result.vulnerabilities
     click.echo()
     click.echo(click.style("[*] " + "-" * 56, fg="cyan", dim=True))
 
     if vulns:
-        # Agrupar por severidad
         groups: dict = {"ALTA": [], "MEDIA": [], "BAJA": []}
         for v in vulns:
             sev_label, _ = severity_of(v.confidence)
@@ -318,7 +287,6 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
                     fg="white", dim=True))
                 click.echo()
 
-        # Línea de conteo por severidad
         summary = " · ".join([
             click.style(f"{len(groups['ALTA'])} alta", fg="red", bold=True),
             click.style(f"{len(groups['MEDIA'])} media", fg="yellow"),
@@ -328,7 +296,6 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
     else:
         ok(f"[+] Sin hallazgos en {elapsed:.1f}s")
 
-    # ---- 6. Generación del informe ----
     if output:
         if os.path.dirname(output) == "":
             reportes_dir = os.path.join(
@@ -343,10 +310,6 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
 
     click.echo()
 
-    # ---- 7. Exit code para CI/CD ----
-    # 0 = sin hallazgos
-    # 1 = hay hallazgos de severidad ALTA o MEDIA
-    # 2 = error de ejecución (URL inaccesible, etc.) — ya gestionado arriba con sys.exit(2)
     if vulns:
         has_high_or_medium = any(v.confidence >= 0.65 for v in vulns)
         sys.exit(1 if has_high_or_medium else 0)

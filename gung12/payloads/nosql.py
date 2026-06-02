@@ -1,4 +1,3 @@
-"""Payloads para detección de NoSQL Injection."""
 
 QUICK_PAYLOADS = [
     '{"$ne": null}',
@@ -31,7 +30,6 @@ FULL_PAYLOADS = [
     '{"$or": [{}, {"a": 1}]}',
 ]
 
-# Patrones que indican NoSQL injection
 DETECTION_PATTERNS = [
     "mongoerror",
     "mongo",

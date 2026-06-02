@@ -1,12 +1,3 @@
-"""Módulo de análisis con IA.
-
-Soporta dos proveedores de IA con API gratuita:
-- Gemini (Google) — gemini-3.1-flash-lite con tier gratuito
-- Groq — modelos Llama/Mixtral con tier gratuito
-
-La IA se usa para validar y priorizar las detecciones,
-NO como motor de detección principal.
-"""
 
 import os
 import json
@@ -16,7 +7,6 @@ from gung12.models import ScanResult
 
 
 class AIAnalyzer:
-    """Analiza resultados de escaneo usando IA como segunda opinión."""
 
     def __init__(self, provider: str = "gemini", api_key: Optional[str] = None):
         self.provider = provider.lower()
@@ -30,7 +20,6 @@ class AIAnalyzer:
             )
 
     def _get_api_key(self) -> Optional[str]:
-        """Busca API key en variables de entorno."""
         env_vars = {
             "gemini": "GEMINI_API_KEY",
             "groq": "GROQ_API_KEY",
@@ -39,7 +28,6 @@ class AIAnalyzer:
         return os.environ.get(var_name)
 
     def analyze_results(self, scan_result: ScanResult) -> str:
-        """Envía los resultados a la IA para análisis experto."""
         prompt = self._build_prompt(scan_result)
 
         if self.provider == "gemini":
@@ -50,7 +38,6 @@ class AIAnalyzer:
             raise ValueError(f"Proveedor no soportado: {self.provider}. Usa 'gemini' o 'groq'.")
 
     def _build_prompt(self, result: ScanResult) -> str:
-        """Construye el prompt para la IA."""
         vulns_summary = []
         for v in result.vulnerabilities:
             vulns_summary.append({
@@ -80,7 +67,6 @@ Vulnerabilidades detectadas ({len(result.vulnerabilities)}):
 Responde en español, de forma concisa y técnica. Máximo 500 palabras."""
 
     def _call_gemini(self, prompt: str) -> str:
-        """Llama a la API de Gemini."""
         import requests
 
         response = requests.post(
@@ -94,7 +80,6 @@ Responde en español, de forma concisa y técnica. Máximo 500 palabras."""
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
     def _call_groq(self, prompt: str) -> str:
-        """Llama a la API de Groq."""
         import requests
 
         response = requests.post(

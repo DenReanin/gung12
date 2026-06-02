@@ -1,4 +1,3 @@
-"""Payloads para detección de SQL Injection."""
 
 QUICK_PAYLOADS = [
     "' OR '1'='1",
@@ -41,7 +40,6 @@ FULL_PAYLOADS = [
     "') UNION SELECT NULL --",
 ]
 
-# Patrones de error SQL en respuestas
 DETECTION_PATTERNS = [
     "you have an error in your sql syntax",
     "warning: mysql",

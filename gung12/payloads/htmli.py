@@ -1,9 +1,3 @@
-"""Payloads para detección de HTML Injection (HTMLi).
-
-A diferencia del XSS, HTMLi no ejecuta JavaScript. Los payloads son etiquetas
-HTML sin atributos de evento. Si aparecen en la respuesta sin escapar, la
-aplicación no codifica la salida aunque bloquee scripts.
-"""
 
 QUICK_PAYLOADS = [
     "<h1>htmli-test</h1>",
@@ -28,7 +22,6 @@ FULL_PAYLOADS = [
     '<button type=button onclick="">htmli-test</button>',
 ]
 
-# Patrones que indican HTMLi exitoso (etiqueta reflejada sin escapar)
 DETECTION_PATTERNS = [
     "<h1>htmli-test</h1>",
     "<b>htmli-test</b>",

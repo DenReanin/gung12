@@ -1,4 +1,3 @@
-"""Registro de payloads por tipo de vulnerabilidad."""
 
 from gung12.payloads import (
     xss, sqli, ssti, xpath, cmdi,
@@ -7,7 +6,6 @@ from gung12.payloads import (
 )
 from gung12.models import VulnType
 
-# Mapeo de VulnType a módulo de payloads
 PAYLOAD_REGISTRY = {
     VulnType.XSS: xss,
     VulnType.SQLI: sqli,
@@ -25,7 +23,6 @@ PAYLOAD_REGISTRY = {
 
 
 def get_payloads(vuln_type: VulnType, full_mode: bool = False) -> list:
-    """Obtiene payloads para un tipo de vulnerabilidad."""
     module = PAYLOAD_REGISTRY[vuln_type]
     if full_mode:
         return module.QUICK_PAYLOADS + module.FULL_PAYLOADS

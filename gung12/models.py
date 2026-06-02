@@ -1,4 +1,3 @@
-"""Modelos de datos para Gung12."""
 
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -23,28 +22,25 @@ class VulnType(Enum):
 
 @dataclass
 class FormField:
-    """Representa un campo de un formulario HTML."""
     name: str
-    field_type: str  # text, password, hidden, submit, etc.
+    field_type: str
     value: str = ""
     required: bool = False
-    options: List[str] = field(default_factory=list)  # Para <select>
+    options: List[str] = field(default_factory=list)
 
 
 @dataclass
 class FormData:
-    """Representa un formulario HTML parseado."""
     url: str
     action: str
-    method: str  # GET o POST
+    method: str
     fields: List[FormField] = field(default_factory=list)
     has_csrf_token: bool = False
     csrf_field: Optional[FormField] = None
-    body_type: str = "form"  # "form" = x-www-form-urlencoded, "json" = application/json
+    body_type: str = "form"
 
     @property
     def injectable_fields(self) -> List[FormField]:
-        """Campos donde se pueden inyectar payloads (excluye submit, hidden CSRF, file, etc.)."""
         skip_types = {"submit", "button", "image", "reset", "file"}
         csrf_names = {"csrf_token", "_token", "csrfmiddlewaretoken",
                       "authenticity_token", "__requestverificationtoken",
@@ -57,12 +53,10 @@ class FormData:
 
     @property
     def file_fields(self) -> List[FormField]:
-        """Campos de tipo file para pruebas de carga de archivos sin restricciones."""
         return [f for f in self.fields if f.field_type == "file"]
 
     @property
     def submit_data(self) -> dict:
-        """Datos base para enviar el formulario con valores por defecto."""
         data = {}
         for f in self.fields:
             if f.field_type == "submit":
@@ -74,33 +68,30 @@ class FormData:
 
 @dataclass
 class VulnResult:
-    """Resultado de una detección de vulnerabilidad."""
     vuln_type: VulnType
     field_name: str
     payload: str
     evidence: str
     description: str
-    confidence: float = 0.0  # 0.0 - 1.0
-    reflection_artifact: bool = False  # True si es posible falso positivo por reflexión total
+    confidence: float = 0.0
+    reflection_artifact: bool = False
 
 
 @dataclass
 class ScanResult:
-    """Resultado completo de un escaneo."""
     url: str
     form: FormData
     vulnerabilities: List[VulnResult] = field(default_factory=list)
     scan_mode: str = "quick"
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     ai_analysis: Optional[str] = None
-    blocked: bool = False  # True si se detectó un bloqueo de WAF/anti-bot (resultados no fiables)
+    blocked: bool = False
 
     @property
     def has_vulnerabilities(self) -> bool:
         return len(self.vulnerabilities) > 0
 
     def to_dict(self) -> dict:
-        """Convierte el resultado a diccionario para JSON."""
         return {
             "url": self.url,
             "scan_mode": self.scan_mode,

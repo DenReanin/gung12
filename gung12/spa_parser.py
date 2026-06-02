@@ -1,16 +1,3 @@
-"""Módulo de parsing de formularios en SPAs (Single Page Applications).
-
-Extiende FormParser usando Playwright para renderizar el JavaScript antes
-de extraer los formularios. Permite analizar aplicaciones Angular, React y Vue.
-
-Requisitos:
-    pip install playwright
-    playwright install chromium
-
-Target recomendado para pruebas: OWASP Juice Shop
-    docker run -p 3000:3000 bkimminich/juice-shop
-    URL de login: http://localhost:3000/#/login
-"""
 
 import sys
 from typing import List, Optional
@@ -19,15 +6,25 @@ from gung12.parser import FormParser
 from gung12.models import FormData, FormField
 
 
-def _install_chromium() -> bool:
-    """Instala el navegador Chromium de Playwright.
+def _ensure_browsers_path() -> None:
+    import os
+    if not getattr(sys, "frozen", False) or os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        return
+    if sys.platform.startswith("win"):
+        base = os.path.join(
+            os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")),
+            "ms-playwright",
+        )
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Caches/ms-playwright")
+    else:
+        base = os.path.expanduser("~/.cache/ms-playwright")
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = base
 
-    Usa el driver que Playwright trae empaquetado, por lo que funciona tanto
-    en una instalación con pip como en el ejecutable generado con PyInstaller
-    (donde no existe ``python -m playwright``). Devuelve True si la instalación
-    termina correctamente.
-    """
+
+def _install_chromium() -> bool:
     import subprocess
+    _ensure_browsers_path()
     try:
         from playwright._impl._driver import compute_driver_executable
     except Exception:
@@ -47,28 +44,16 @@ def _install_chromium() -> bool:
 
 
 class SPAFormParser(FormParser):
-    """Parser de formularios que usa Playwright para renderizar SPAs.
-
-    Hereda la lógica de extracción de FormParser. Sobreescribe parse_forms()
-    para realizar la extracción del HTML y, si es necesario, el descubrimiento
-    del endpoint REST en una única sesión de navegador. Esto reduce a la mitad
-    el coste de lanzar Chromium.
-    """
 
     def __init__(self, cookies: Optional[dict] = None, timeout: int = 10,
                  headless: bool = True, wait_state: str = "networkidle"):
         super().__init__(cookies=cookies, timeout=timeout)
         self.headless = headless
-        self.wait_state = wait_state  # "networkidle", "domcontentloaded", "load"
+        self.wait_state = wait_state
 
     def parse_forms(self, url: str) -> List[FormData]:
-        """Extrae formularios del HTML renderizado. Incluye fallback para SPAs sin <form>.
-
-        Unifica fetch + discovery en una sola sesión Playwright cuando es necesario.
-        """
         from bs4 import BeautifulSoup
 
-        # Una sola sesión Playwright para todo: HTML + (opcional) descubrimiento de endpoint
         html, endpoint_info = self._render_and_maybe_discover(url, discover=False)
         soup = BeautifulSoup(html, "html.parser")
         forms = soup.find_all("form")
@@ -76,7 +61,6 @@ class SPAFormParser(FormParser):
         if forms:
             return [self._parse_single_form(form_tag, url) for form_tag in forms]
 
-        # Fallback: Angular Material y similares que renderizan inputs sin <form>
         injectable_types = {"text", "email", "password", "search", "tel", "url", "number"}
         skip_types_fb = {"submit", "button", "image", "reset", "hidden", "checkbox", "radio"}
         fields = []
@@ -106,8 +90,6 @@ class SPAFormParser(FormParser):
         if not fields:
             return []
 
-        # Se necesita descubrir el endpoint real: segunda sesión Playwright pero
-        # solo aquí (no en el flujo normal con <form> presente).
         _, endpoint_info = self._render_and_maybe_discover(url, discover=True, fields=fields)
 
         return [FormData(
@@ -122,14 +104,8 @@ class SPAFormParser(FormParser):
 
     def _render_and_maybe_discover(self, url: str, discover: bool = False,
                                    fields: Optional[List[FormField]] = None) -> tuple:
-        """Abre Chromium una sola vez, obtiene el HTML renderizado y, si
-        ``discover`` está activo, intenta capturar el endpoint POST real
-        enviando el formulario con valores dummy.
-
-        Devuelve (html, endpoint_info). endpoint_info por defecto apunta a la
-        URL original con body_type='form'.
-        """
         endpoint_info = {"action": url, "body_type": "form"}
+        _ensure_browsers_path()
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as e:
@@ -152,7 +128,6 @@ class SPAFormParser(FormParser):
                                        or "playwright install" in msg.lower())
                     if discover or not browser_missing:
                         raise
-                    # Autoinstalación de Chromium en el primer uso de --spa
                     print("[*] Chromium de Playwright no encontrado. "
                           "Descargando (~280 MB, solo la primera vez)...",
                           file=sys.stderr)
@@ -181,11 +156,10 @@ class SPAFormParser(FormParser):
                         for c in self.session.cookies
                     ]
                     if pw_cookies:
-                        context.add_cookies(pw_cookies)  # type: ignore[arg-type]
+                        context.add_cookies(pw_cookies)
 
                 page = context.new_page()
 
-                # Captura de petición POST solo si estamos en modo discover
                 capture_active = {"value": False}
                 if discover:
                     def on_request(request):
@@ -205,9 +179,8 @@ class SPAFormParser(FormParser):
                     page.on("request", on_request)
 
                 page.goto(url, timeout=self.timeout * 1000)
-                page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)  # type: ignore[arg-type]
+                page.wait_for_load_state(self.wait_state, timeout=self.timeout * 1000)
 
-                # Esperar a que aparezca un formulario/input (SPAs con hash routing)
                 try:
                     page.wait_for_selector(
                         "form, input[type='text'], input[type='email'], input[type='password']",
@@ -217,7 +190,6 @@ class SPAFormParser(FormParser):
                 except Exception:
                     pass
 
-                # HTML siempre se captura — es lo principal
                 html = page.content()
 
                 if discover and fields:
@@ -232,8 +204,6 @@ class SPAFormParser(FormParser):
         return (html, endpoint_info)
 
     def _submit_with_dummy_data(self, page, fields: List[FormField], capture_active: dict) -> None:
-        """Rellena el formulario con valores dummy y dispara el submit para que
-        el listener on_request capture la URL real del endpoint."""
         try:
             specific_selector = ", ".join(f"input[name='{f.name}']" for f in fields)
             page.wait_for_selector(specific_selector, state="visible", timeout=8000)
@@ -262,7 +232,6 @@ class SPAFormParser(FormParser):
             except Exception:
                 pass
 
-        # Cerrar overlays que bloqueen el envío
         dismiss_selectors = [
             "button:has-text('Dismiss')",
             "button:has-text('Close')",
@@ -315,6 +284,5 @@ class SPAFormParser(FormParser):
                 pass
 
     def fetch_page(self, url: str) -> str:
-        """Compatibilidad: descarga el HTML tras ejecutar el JavaScript."""
         html, _ = self._render_and_maybe_discover(url, discover=False)
         return html

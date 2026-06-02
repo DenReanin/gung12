@@ -1,8 +1,3 @@
-"""Módulo 2: Motor de pruebas (Payload Engine).
-
-Orquesta el escaneo: para cada tipo de vulnerabilidad y cada campo del formulario,
-envía payloads y analiza las respuestas.
-"""
 
 import time
 import json as _json
@@ -14,15 +9,10 @@ from gung12.payloads import get_payloads
 from gung12.analyzer import ResponseAnalyzer
 
 
-# Tipos que indican página con reflexión total (alta confianza)
 _REFLECTION_INDICATORS = {VulnType.XSS, VulnType.HTMLI}
-# Tipos susceptibles de falso positivo cuando hay reflexión total
 _REFLECTION_SUSCEPTIBLE = {VulnType.SQLI, VulnType.CMDI, VulnType.NOSQL, VulnType.SSTI,
                           VulnType.XXE, VulnType.OPEN_REDIRECT}
 
-# Marcadores de páginas de bloqueo/desafío de WAF o anti-bot (Cloudflare, Akamai,
-# Imperva...). Si la respuesta base coincide, los resultados no son fiables y el
-# escaneo se detiene para no generar falsos positivos.
 _BLOCK_MARKERS = (
     "just a moment", "checking your browser", "cf-mitigated", "_cf_chl",
     "/cdn-cgi/challenge", "attention required", "cloudflare to restrict",
@@ -34,7 +24,6 @@ _BLOCK_STATUS = {403, 429, 503}
 
 
 class ScanEngine:
-    """Motor de pruebas que lanza payloads contra formularios."""
 
     def __init__(self, cookies: Optional[dict] = None, timeout: int = 10,
                  verbose: bool = False, use_spa: bool = False,
@@ -46,8 +35,6 @@ class ScanEngine:
         self.verbose = verbose
         self.use_spa = use_spa
         self.waf_bypass = waf_bypass
-        # User-Agent realista para evitar bloqueos de WAFs que rechazan
-        # cabeceras delatoras tipo "Gung12/1.0 (Security Scanner...)"
         self.user_agent = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
             "Gecko/20100101 Firefox/120.0"
@@ -56,13 +43,9 @@ class ScanEngine:
 
     def scan(self, form: FormData, test_types: List[VulnType],
              full_mode: bool = False, callback=None) -> ScanResult:
-        """Ejecuta un escaneo completo contra un formulario."""
 
-        # Obtener respuesta base
         base_response, base_status, base_time = self._send_base_request(form)
 
-        # Detección de bloqueo WAF/anti-bot: si la respuesta base es una página de
-        # desafío o bloqueo, los resultados serían falsos positivos. Se aborta.
         if self._looks_like_block(base_response, base_status):
             if callback:
                 callback(f"[BLOQUEO] La respuesta parece un bloqueo de WAF/anti-bot "
@@ -82,7 +65,6 @@ class ScanEngine:
         )
 
         all_vulns: List[VulnResult] = []
-        # Campos cuyo input se refleja literal en la respuesta (señal de reflexión).
         reflective_fields: set = set()
 
         total_types = len(test_types)
@@ -90,7 +72,6 @@ class ScanEngine:
             if callback:
                 callback(f"[{idx}/{total_types}] Probando {vuln_type.value}...")
 
-            # CSRF es análisis estático (no necesita payloads)
             if vuln_type == VulnType.CSRF:
                 result = analyzer.analyze(
                     vuln_type=VulnType.CSRF,
@@ -107,7 +88,6 @@ class ScanEngine:
                         callback(f"  [!] CSRF detectado: sin token anti-CSRF")
                 continue
 
-            # FILE_UPLOAD requiere campos file y envío multipart
             if vuln_type == VulnType.FILE_UPLOAD:
                 file_fields = form.file_fields
                 if not file_fields:
@@ -140,7 +120,6 @@ class ScanEngine:
                                     callback(f"  [!] FILE_UPLOAD detectado en '{field.name}': {filename[:60]}")
                 continue
 
-            # Para el resto, obtener payloads e inyectar
             payloads = get_payloads(vuln_type, full_mode)
             injectable = form.injectable_fields
 
@@ -151,7 +130,6 @@ class ScanEngine:
 
             for field in injectable:
                 for payload in payloads:
-                    # WAF bypass: ampliar con variantes encoded si está activo
                     payload_list = [payload]
                     if self.waf_bypass:
                         from gung12.waf_bypass import generate_bypass_variants
@@ -162,9 +140,6 @@ class ScanEngine:
                             form, field.name, actual_payload
                         )
 
-                        # Detección de reflexión: si el payload se devuelve literal
-                        # en la respuesta (y no estaba en la base), el campo refleja
-                        # el input, lo que puede causar falsos positivos.
                         if (len(actual_payload) >= 4
                                 and actual_payload in response_text
                                 and actual_payload not in base_response):
@@ -186,10 +161,9 @@ class ScanEngine:
                                 all_vulns.append(result)
                                 if callback:
                                     callback(f"  [!] {vuln_type.value.upper()} detectado en '{field.name}': {actual_payload[:60]}")
-                            break  # Primer payload que detecta es suficiente
+                            break
 
 
-        # DOM XSS pass: solo cuando --spa activo
         if self.use_spa and VulnType.XSS in test_types:
             if callback:
                 callback("Probando DOM XSS (Playwright)...")
@@ -201,9 +175,6 @@ class ScanEngine:
                     if callback:
                         callback(f"  [!] DOM XSS detectado en '{result.field_name}': {result.payload[:60]}")
 
-        # Filtro de reflexión total: si XSS/HTMLI alta confianza en un campo,
-        # o si el campo refleja el input literal, marcar SQLi/CMDi/NoSQL/SSTI/XXE/
-        # Open Redirect del mismo campo como posible artefacto de reflexión.
         self._apply_reflection_filter(all_vulns, reflective_fields)
 
         return ScanResult(
@@ -215,14 +186,12 @@ class ScanEngine:
 
     @staticmethod
     def _looks_like_block(text: str, status: int) -> bool:
-        """Detecta si la respuesta es una página de bloqueo/desafío de WAF o anti-bot."""
         if status in _BLOCK_STATUS:
             return True
         low = (text or "").lower()
         return any(marker in low for marker in _BLOCK_MARKERS)
 
     def _send_base_request(self, form: FormData) -> tuple:
-        """Envía una petición base con datos normales."""
         data = form.submit_data
         try:
             start = time.time()
@@ -238,11 +207,8 @@ class ScanEngine:
             return "", 0, 0.0
 
     def _send_payload(self, form: FormData, field_name: str, payload: str) -> tuple:
-        """Envía una petición con un payload en un campo específico."""
         data = form.submit_data
 
-        # Fix NoSQL en APIs JSON: los operadores MongoDB deben enviarse como objetos,
-        # no como strings. Si el payload es JSON válido y el body es JSON, parsearlo.
         if form.body_type == "json" and payload.strip().startswith("{"):
             try:
                 data[field_name] = _json.loads(payload)
@@ -277,11 +243,6 @@ class ScanEngine:
 
     def _apply_reflection_filter(self, vulns: List[VulnResult],
                                  reflective_fields: Optional[set] = None) -> None:
-        """Post-proceso: marca como posible artefacto de reflexión los hallazgos
-        de tipos susceptibles (SQLi, CMDi, NoSQL, SSTI, XXE, Open Redirect) en
-        campos donde hay reflexión total. Un campo se considera reflejante si:
-        - presenta XSS/HTMLI con confianza ≥0.80, o
-        - su input se devolvió literal en la respuesta (reflective_fields)."""
         reflected_fields = {
             v.field_name for v in vulns
             if v.vuln_type in _REFLECTION_INDICATORS and v.confidence >= 0.80
@@ -295,13 +256,6 @@ class ScanEngine:
                 v.description += " [posible artefacto de reflexión — verificar manualmente]"
 
     def _scan_dom_xss(self, form: FormData, payloads: List[str]) -> List[VulnResult]:
-        """Detecta DOM XSS usando Playwright: captura alert() disparados por payloads.
-
-        Sólo activo cuando use_spa=True. Reutiliza un único browser + context para
-        todos los campos y payloads (un context por campo se descarta al cambiar
-        de campo, para evitar contaminación de estado entre pruebas).
-        Confianza 0.98 — un alert disparado es confirmación directa.
-        """
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
@@ -313,7 +267,6 @@ class ScanEngine:
 
         results: List[VulnResult] = []
 
-        # Preparar cookies una sola vez
         pw_cookies = []
         if self.session.cookies:
             from urllib.parse import urlparse
@@ -329,10 +282,9 @@ class ScanEngine:
                 browser = p.chromium.launch(headless=True)
 
                 for field in form.injectable_fields:
-                    # Un contexto por campo, reutilizado para todos los payloads
                     context = browser.new_context(user_agent=self.user_agent)
                     if pw_cookies:
-                        context.add_cookies(pw_cookies)  # type: ignore[arg-type]
+                        context.add_cookies(pw_cookies)
                     page = context.new_page()
 
                     dialog_info = {"fired": False, "message": ""}
@@ -376,7 +328,6 @@ class ScanEngine:
 
                     context.close()
                     if field_hit:
-                        # Pasamos al siguiente campo; ya hay evidencia en este
                         continue
 
                 browser.close()
@@ -387,9 +338,7 @@ class ScanEngine:
         return results
 
     def _send_file_payload(self, form: FormData, field_name: str, file_tuple: tuple) -> tuple:
-        """Envía una petición multipart/form-data con un archivo malicioso."""
         filename, content, mime_type = file_tuple
-        # Datos del formulario excluyendo el campo file
         data = {k: v for k, v in form.submit_data.items() if k != field_name}
         files = {field_name: (filename, content.encode("utf-8", errors="replace"), mime_type)}
 
