@@ -12,10 +12,38 @@ Target recomendado para pruebas: OWASP Juice Shop
     URL de login: http://localhost:3000/#/login
 """
 
+import sys
 from typing import List, Optional
 
 from gung12.parser import FormParser
 from gung12.models import FormData, FormField
+
+
+def _install_chromium() -> bool:
+    """Instala el navegador Chromium de Playwright.
+
+    Usa el driver que Playwright trae empaquetado, por lo que funciona tanto
+    en una instalación con pip como en el ejecutable generado con PyInstaller
+    (donde no existe ``python -m playwright``). Devuelve True si la instalación
+    termina correctamente.
+    """
+    import subprocess
+    try:
+        from playwright._impl._driver import compute_driver_executable
+    except Exception:
+        return False
+    try:
+        from playwright._impl._driver import get_driver_env
+        env = get_driver_env()
+    except Exception:
+        env = None
+    try:
+        driver = compute_driver_executable()
+        cmd = list(driver) if isinstance(driver, (list, tuple)) else [driver]
+        cmd += ["install", "chromium"]
+        return subprocess.run(cmd, env=env).returncode == 0
+    except Exception:
+        return False
 
 
 class SPAFormParser(FormParser):
@@ -116,7 +144,32 @@ class SPAFormParser(FormParser):
         html = ""
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=self.headless)
+                try:
+                    browser = p.chromium.launch(headless=self.headless)
+                except Exception as e:
+                    msg = str(e)
+                    browser_missing = ("Executable doesn't exist" in msg
+                                       or "playwright install" in msg.lower())
+                    if discover or not browser_missing:
+                        raise
+                    # Autoinstalación de Chromium en el primer uso de --spa
+                    print("[*] Chromium de Playwright no encontrado. "
+                          "Descargando (~280 MB, solo la primera vez)...",
+                          file=sys.stderr)
+                    if not _install_chromium():
+                        raise RuntimeError(
+                            "El modo --spa requiere el navegador Chromium de Playwright. "
+                            "La descarga automática falló (¿sin conexión o tras un proxy?).\n"
+                            "    Instálalo manualmente con:  python -m playwright install chromium"
+                        ) from e
+                    print("[+] Chromium instalado correctamente.", file=sys.stderr)
+                    try:
+                        browser = p.chromium.launch(headless=self.headless)
+                    except Exception as e2:
+                        raise RuntimeError(
+                            "No se pudo iniciar Chromium tras instalarlo.\n"
+                            "    Inténtalo manualmente con:  python -m playwright install chromium"
+                        ) from e2
                 context = browser.new_context(user_agent=self.user_agent)
 
                 if self.session.cookies:
@@ -171,6 +224,8 @@ class SPAFormParser(FormParser):
                     self._submit_with_dummy_data(page, fields, capture_active)
 
                 browser.close()
+        except RuntimeError:
+            raise
         except Exception:
             pass
 

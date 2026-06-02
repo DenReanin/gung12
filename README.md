@@ -27,6 +27,8 @@ pip install -r requirements.txt
 python -m gung12 --help
 ```
 
+> **Nota:** el modo `--spa` usa el navegador Chromium de Playwright. Gung12 lo **descarga automáticamente** la primera vez que se utiliza (~280 MB, en la caché del usuario). Si prefieres instalarlo a mano o la descarga automática falla (sin conexión o tras un proxy), ejecuta `playwright install chromium`.
+
 ### Ejecutable
 
 Descargar desde [Releases](https://github.com/DenReanin/gung12/releases) el binario para tu plataforma (Windows, Linux o macOS) y ejecutarlo directamente. No requiere Python instalado.

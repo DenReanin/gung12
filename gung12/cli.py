@@ -200,6 +200,9 @@ def main(url: str, tests: str, full: bool, output: Optional[str],
 
     try:
         forms = parser.parse_forms(url)
+    except RuntimeError as e:
+        err(f"[ERROR] {e}")
+        sys.exit(2)
     except Exception as e:
         err(f"[ERROR] No se pudo acceder a la URL: {e}")
         sys.exit(2)
